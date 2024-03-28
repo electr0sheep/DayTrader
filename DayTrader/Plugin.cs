@@ -12,13 +12,15 @@ namespace Plugin
     public sealed class Plugin : IDalamudPlugin
     {
         public string Name => "Day Trader";
-        private const string CommandName = "/pmycommand";
+        private const string CommandName = "/pdaytrader";
 
         public Configuration Configuration { get; init; }
         public WindowSystem WindowSystem = new("DayTrader");
 
         private ConfigWindow ConfigWindow { get; init; }
-        private MainWindow MainWindow { get; init; }
+        private RetainerSellOverlay MainWindow { get; init; }
+        private HelpWindow HelpWindow { get; init; }
+        private RetainerSellListOverlay RetainerSellListOverlay { get; init; }
 
         public Plugin(DalamudPluginInterface PluginInterface)
         {
@@ -30,10 +32,14 @@ namespace Plugin
             Configuration.Initialize(PluginInterface);
 
             ConfigWindow = new ConfigWindow(this);
-            MainWindow = new MainWindow(this);
+            MainWindow = new RetainerSellOverlay(this);
+            HelpWindow = new HelpWindow(this);
+            RetainerSellListOverlay = new(this);
             
             WindowSystem.AddWindow(ConfigWindow);
             WindowSystem.AddWindow(MainWindow);
+            WindowSystem.AddWindow(HelpWindow);
+            WindowSystem.AddWindow(RetainerSellListOverlay);
 
             Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
             {
@@ -57,7 +63,7 @@ namespace Plugin
         private void OnCommand(string command, string args)
         {
             // in response to the slash command, just display our main ui
-            MainWindow.IsOpen = true;
+            HelpWindow.IsOpen = true;
         }
 
         private void DrawUI()

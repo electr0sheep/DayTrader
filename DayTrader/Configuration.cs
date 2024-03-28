@@ -1,4 +1,4 @@
-﻿using Dalamud.Configuration;
+using Dalamud.Configuration;
 using Dalamud.Plugin;
 using System;
 
@@ -8,6 +8,10 @@ namespace Plugin
     public class Configuration : IPluginConfiguration
     {
         public int Version { get; set; } = 0;
+        public bool Enabled { get; set; } = true;
+        public bool RequestRegion { get; set; } = true;
+        public bool RequestDataCenter { get; set; } = true;
+        public bool RequestWorlds { get; set; } = true;
 
         public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
 
