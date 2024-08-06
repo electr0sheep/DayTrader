@@ -22,7 +22,7 @@ namespace Plugin
         private HelpWindow HelpWindow { get; init; }
         private RetainerSellListOverlay RetainerSellListOverlay { get; init; }
 
-        public Plugin(DalamudPluginInterface PluginInterface)
+        public Plugin(IDalamudPluginInterface PluginInterface)
         {
             PluginInterface.Create<Service>();
 

@@ -3,6 +3,7 @@ using ImGuiNET;
 using System;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using DayTrader;
+using ImPlotNET;
 
 namespace Plugin.Windows;
 internal unsafe class RetainerSellListOverlay : Window, IDisposable
@@ -48,16 +49,19 @@ internal unsafe class RetainerSellListOverlay : Window, IDisposable
             Plugin.Configuration.Enabled = enabled;
             Plugin.Configuration.Save();
         }
+        ImGui.SameLine();
         if (ImGui.Checkbox("Request Region", ref requestRegion))
         {
             Plugin.Configuration.RequestRegion = requestRegion;
             Plugin.Configuration.Save();
         }
+        ImGui.SameLine();
         if (ImGui.Checkbox("Request Data Center", ref requestDataCenter))
         {
             Plugin.Configuration.RequestDataCenter = requestDataCenter;
             Plugin.Configuration.Save();
         }
+        ImGui.SameLine();
         if (ImGui.Checkbox("Request Worlds", ref requestWorlds))
         {
             Plugin.Configuration.RequestWorlds = requestWorlds;

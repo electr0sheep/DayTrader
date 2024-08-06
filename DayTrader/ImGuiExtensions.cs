@@ -90,7 +90,7 @@ namespace DayTrader
             var start = (int)Math.Abs(Math.Sin(ImGui.GetTime() * 1.8f) * (num_segments - 5));
 
             var a_min = (float)Math.PI * 2.0f * start / num_segments;
-            var a_max = (float)Math.PI * 2.0f * ((float)num_segments - 3) / num_segments;
+            var a_max = (float)Math.PI * 2.0f * (num_segments - 3) / num_segments;
 
             ImVec2 centre = new(pos.X + radius, pos.Y + radius + style.FramePadding.Y);
 

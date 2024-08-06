@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Interface.Colors;
@@ -13,6 +14,7 @@ using DayTrader.Models;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using ImGuiNET;
+using ImPlotNET;
 using Lumina.Excel.GeneratedSheets2;
 
 namespace Plugin.Windows;
@@ -24,13 +26,22 @@ public class RetainerSellOverlay : Window, IDisposable
     private float width;
 
     private CurrentlyShownView? dcMarketData;
-    private List<CurrentlyShownView> universalisData = new();
+    private List<CurrentlyShownView> worldMarketData = new();
     private string? itemName;
     private uint itemId;
     private bool itemHq;
-    private bool fetchingData = false;
+    private bool fetchingDataCenterData = false;
 
     private const char HqSymbol = '';
+
+    private float[] xvals = [
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
+        DateTimeOffset.UtcNow.AddDays(2).ToUnixTimeSeconds(),
+        DateTimeOffset.UtcNow.AddDays(3).ToUnixTimeSeconds(),
+        DateTimeOffset.UtcNow.AddDays(4).ToUnixTimeSeconds(),
+    ];
+    private float[] yvals = [1000f, 2000f, 3000f, 4000f, 5000f];
 
     public RetainerSellOverlay(Plugin plugin) : base("DayTrader RetainerSell Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, true)
     {
@@ -66,48 +77,29 @@ public class RetainerSellOverlay : Window, IDisposable
             if (baseNode->IsVisible && baseNode->UldManager.LoadedState == AtkLoadState.Loaded)
             {
                 Position = new(baseNode->X - width, baseNode->Y);
+
+                var addon = (AddonRetainerSell*)addonPtr;
+
+                if (addon->ItemName != null)
+                {
+                    var fullItemName = addon->ItemName->NodeText.ToString()[14..^10].Replace("\u0002\u0010\u0001\u0003", "");
+                    
+                    Service.PluginLog.Debug(fullItemName);
+                    itemHq = fullItemName.EndsWith(HqSymbol);
+                    var newItemName = itemHq ? fullItemName[..^2] : fullItemName;
+                    if (itemName != newItemName)
+                    {
+                        itemName = newItemName;
+                        itemId = Service.DataManager.GetExcelSheet<Item>()!.Where((i) => i.Name == itemName).First().RowId;
+                        dcMarketData = null;
+                        worldMarketData = [];
+                    }
+                }
+
                 return true;
             }
         }
         return false;
-    }
-
-    public unsafe override void PreOpenCheck()
-    {
-        try
-        {
-            var addonPtr = Service.GameGui.GetAddonByName("RetainerSell");
-            if (addonPtr == nint.Zero)
-            {
-                return;
-            }
-
-            var baseNode = (AtkUnitBase*)addonPtr;
-            var addon = (AddonRetainerSell*)addonPtr;
-            if (addon->ItemName != null)
-            {
-                var fullItemName = addon->ItemName->NodeText.ToString()[14..^10];
-                itemHq = fullItemName.EndsWith(HqSymbol);
-                var newItemName = itemHq ? fullItemName[..^2] : fullItemName;
-                if (itemName != newItemName)
-                {
-                    itemName = newItemName;
-                    itemId = Service.DataManager.GetExcelSheet<Item>()!.Where((i) => i.Name == itemName).First().RowId;
-                    dcMarketData = null;
-                    universalisData = new();
-                    fetchingData = false;
-                }
-
-                //Size = new Vector2(Size!.Value.X * ImGuiHelpers.GlobalScaleSafe, baseNode->RootNode->Height * baseNode->Scale);
-                //Size = new Vector2(300.0f, baseNode->RootNode->Height * baseNode->Scale);
-                //Position = new Vector2(baseNode->X - (Size!.Value.X * ImGuiHelpers.GlobalScale), baseNode->Y);
-            }
-        }
-        catch (Exception ex)
-        {
-            Service.PluginLog.Error(ex.Message);
-            Service.PluginLog.Error(ex.StackTrace!);
-        }
     }
 
     public override void Draw()
@@ -116,45 +108,6 @@ public class RetainerSellOverlay : Window, IDisposable
         ImGui.Text($"{itemName}{(itemHq ? $" {HqSymbol}" : "")}");
         Service.FontManager.H1.Pop();
 
-        if (dcMarketData == null)
-        {
-            var dataCenter = Service.ClientState.LocalPlayer?.HomeWorld.GameData?.DataCenter?.Value;
-            if (dataCenter == null)
-            {
-                return;
-            }
-            var worlds = Service.DataManager.GetExcelSheet<World>()!.Where((i) => i.DataCenter.Value?.RowId == dataCenter.RowId);
-            if (!fetchingData)
-            {
-                fetchingData = true;
-                Task.Run(async () =>
-                {
-                    if (Plugin.Configuration.RequestDataCenter)
-                    {
-                        dcMarketData = await UniversalisClient.GetItemInfo(itemId, dataCenter.Name, 10, CancellationToken.None);
-                    }
-                    if (Plugin.Configuration.RequestWorlds)
-                    {
-                        foreach (var world in worlds)
-                        {
-                            if (!world.IsPublic)
-                            {
-                                continue;
-                            }
-                            var marketData = await UniversalisClient.GetItemInfo(itemId, world.Name.RawString, 10, CancellationToken.None);
-                            if (marketData.WorldID == Service.ClientState.LocalPlayer.HomeWorld.Id)
-                            {
-                                universalisData.Insert(0, marketData);
-                                continue;
-                            }
-                            Service.PluginLog.Debug(world.Name.RawString);
-                            Service.PluginLog.Debug(marketData.ToString());
-                            universalisData.Add(marketData);
-                        }
-                    }
-                });
-            }
-        }
         //if (ImGui.BeginChild("Glossary", ImGui.CalcTextSize("TEST"), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.AlwaysAutoResize))
         //{
         //    ImGui.Text("TEST");
@@ -170,6 +123,7 @@ public class RetainerSellOverlay : Window, IDisposable
         }
         if (Plugin.Configuration.RequestDataCenter)
         {
+            var dataCenter = Service.ClientState.LocalPlayer?.HomeWorld.GameData?.DataCenter?.Value;
             Service.FontManager.H2.Push();
             DayTrader.ImGuiExtensions.SeparatorText("Data Center");
             Service.FontManager.H2.Pop();
@@ -178,7 +132,17 @@ public class RetainerSellOverlay : Window, IDisposable
             Service.FontManager.H3.Pop();
             if (dcMarketData == null)
             {
-                DayTrader.ImGuiExtensions.Spinner("DCSpinner", 10.0f, 2, ImGuiColors.TankBlue);
+                fetchingDataCenterData = false;
+                ImGuiExtensions.Spinner("DCSpinner", 10.0f, 2, ImGuiColors.TankBlue);
+                if (!fetchingDataCenterData)
+                {
+                    fetchingDataCenterData = true;
+                    Task.Run(async () =>
+                    {
+                        dcMarketData = await UniversalisClient.GetItemInfo(itemId, dataCenter!.Name, 10, CancellationToken.None);
+                        fetchingDataCenterData = false;
+                    });
+                }
             }
             else
             {
@@ -220,31 +184,61 @@ public class RetainerSellOverlay : Window, IDisposable
                 }
             }
         }
-        if (Plugin.Configuration.RequestWorlds)
-        {
-            Service.FontManager.H2.Push();
-            DayTrader.ImGuiExtensions.SeparatorText("Worlds");
-            Service.FontManager.H2.Pop();
+        //if (Plugin.Configuration.RequestWorlds)
+        //{
+        //    Service.FontManager.H2.Push();
+        //    DayTrader.ImGuiExtensions.SeparatorText("Worlds");
+        //    Service.FontManager.H2.Pop();
 
-            foreach (var world in universalisData)
-            {
-                Service.FontManager.H3.Push();
-                DayTrader.ImGuiExtensions.SeparatorText(world.WorldName);
-                Service.FontManager.H3.Pop();
-                if (itemHq)
-                {
-                    ImGui.Text($"World Sale Velocity: {world.HqSaleVelocity}");
-                    ImGui.Text($"Current Average Price: {world.AveragePriceHq}");
-                }
-                else
-                {
-                    ImGui.Text($"Sale Velocity: {world.NqSaleVelocity}");
-                    ImGui.Text($"Current Average Price: {world.AveragePriceNq}");
-                }
-                ImGui.Text($"Units for sale: {world.UnitsForSale}");
-                ImGui.Text($"Units sold: {world.UnitsSold}");
-            }
-        }
+        //    if (worldMarketData.Count == 0)
+        //    {
+        //        var worlds = Service.DataManager.GetExcelSheet<World>()!.Where((i) => i.DataCenter.Value?.RowId == dataCenter!.RowId);
+        //        foreach (var world in worlds)
+        //        {
+        //            if (!world.IsPublic)
+        //            {
+        //                continue;
+        //            }
+        //            var marketData = await UniversalisClient.GetItemInfo(itemId, world.Name.RawString, 10, CancellationToken.None);
+        //            if (marketData.WorldID == Service.ClientState.LocalPlayer!.HomeWorld.Id)
+        //            {
+        //                universalisData.Insert(0, marketData);
+        //                continue;
+        //            }
+        //            Service.PluginLog.Debug(world.Name.RawString);
+        //            Service.PluginLog.Debug(marketData.ToString());
+        //            universalisData.Add(marketData);
+        //        }
+        //    }
+
+
+        //    foreach (var world in worldMarketData)
+        //    {
+        //        Service.FontManager.H3.Push();
+        //        DayTrader.ImGuiExtensions.SeparatorText(world.WorldName);
+        //        Service.FontManager.H3.Pop();
+        //        if (itemHq)
+        //        {
+        //            ImGui.Text($"World Sale Velocity: {world.HqSaleVelocity}");
+        //            ImGui.Text($"Current Average Price: {world.AveragePriceHq}");
+        //        }
+        //        else
+        //        {
+        //            ImGui.Text($"Sale Velocity: {world.NqSaleVelocity}");
+        //            ImGui.Text($"Current Average Price: {world.AveragePriceNq}");
+        //        }
+        //        ImGui.Text($"Units for sale: {world.UnitsForSale}");
+        //        ImGui.Text($"Units sold: {world.UnitsSold}");
+        //    }
+        //}
         width = ImGui.GetWindowSize().X;
+
+        if (ImPlot.BeginPlot($"{itemName} Price", new Vector2(500, 500), ImPlotFlags.NoTitle))
+        {
+            ImPlot.SetupAxisScale(ImAxis.X1, ImPlotScale.Time);
+            ImPlot.SetupAxes("Time", "Price", ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel, ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel);
+            ImPlot.PlotLine("", ref xvals[0], ref yvals[0], 5);
+            ImPlot.EndPlot();
+        }
     }
 }
