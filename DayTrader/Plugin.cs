@@ -6,13 +6,24 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 using Plugin.Windows;
 using DayTrader;
+using System.Linq;
+using System.Diagnostics.Contracts;
+using Dalamud.Utility;
+using ImGuiNET;
+using System.Reflection.Emit;
+using Dalamud.Game.Network;
+using DayTrader.Models;
+using System;
+using Lumina.Excel.GeneratedSheets2;
+using Dalamud.Game.Text.SeStringHandling;
+using System.Text;
 
 namespace Plugin
 {
     public sealed class Plugin : IDalamudPlugin
     {
         public string Name => "Day Trader";
-        private const string CommandName = "/pdaytrader";
+        private const string CommandName = "/pdt";
 
         public Configuration Configuration { get; init; }
         public WindowSystem WindowSystem = new("DayTrader");
@@ -43,11 +54,12 @@ namespace Plugin
 
             Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
             {
-                HelpMessage = "A useful message to display in /xlhelp"
+                HelpMessage = "Displays Day Trader config window"
             });
 
             PluginInterface.UiBuilder.Draw += DrawUI;
             PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
+            Service.GameNetwork.NetworkMessage += OnNetworkMessage;
         }
 
         public void Dispose()
@@ -58,12 +70,35 @@ namespace Plugin
             MainWindow.Dispose();
             
             Service.CommandManager.RemoveHandler(CommandName);
+            Service.GameNetwork.NetworkMessage -= OnNetworkMessage;
         }
 
         private void OnCommand(string command, string args)
         {
-            // in response to the slash command, just display our main ui
-            HelpWindow.IsOpen = true;
+            var argv = args.Split(' ');
+            if (argv[0].IsNullOrEmpty())
+            {
+                ConfigWindow.IsOpen = true;
+            }
+            if (argv[0] == "help")
+            {
+                HelpWindow.IsOpen = true;
+            }
+        }
+
+        private unsafe void OnNetworkMessage(nint dataPtr, ushort opCode, uint sourceActorId, uint targetActorId, NetworkMessageDirection direction)
+        {
+            if (direction == NetworkMessageDirection.ZoneDown && opCode == 803)
+            {
+                Service.PluginLog.Debug($"{dataPtr:X}");
+                SaleHistory* saleHistory = (SaleHistory*)dataPtr;
+                foreach (SaleHistoryItem item in saleHistory->ItemList())
+                {
+                    var itemName = Service.DataManager.GetExcelSheet<Item>()!.GetRow(item.ItemId)!.Name;
+                    Service.PluginLog.Debug($"{itemName}: {item.SalePrice}: {item.Date}: {item.BuyerName()}");
+                }
+            }
+            return;
         }
 
         private void DrawUI()

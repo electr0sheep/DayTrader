@@ -19,5 +19,6 @@ namespace DayTrader
         [PluginService] public static IDataManager DataManager { get; private set; } = null!;
         [PluginService] public static IGameGui GameGui { get; private set; } = null!;
         [PluginService] public static IPluginLog PluginLog { get; private set; } = null!;
+        [PluginService] public static IGameNetwork GameNetwork { get; private set; } = null!;
     }
 }

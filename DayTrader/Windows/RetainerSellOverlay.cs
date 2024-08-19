@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Interface.Colors;
@@ -21,7 +22,7 @@ namespace Plugin.Windows;
 
 public class RetainerSellOverlay : Window, IDisposable
 {
-    private readonly Plugin Plugin;
+    private readonly Plugin plugin;
 
     private float width;
 
@@ -34,25 +35,21 @@ public class RetainerSellOverlay : Window, IDisposable
 
     private const char HqSymbol = '';
 
-    private float[] xvals = [
-        DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-        DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds(),
-        DateTimeOffset.UtcNow.AddDays(2).ToUnixTimeSeconds(),
-        DateTimeOffset.UtcNow.AddDays(3).ToUnixTimeSeconds(),
-        DateTimeOffset.UtcNow.AddDays(4).ToUnixTimeSeconds(),
-    ];
-    private float[] yvals = [1000f, 2000f, 3000f, 4000f, 5000f];
+    private PlotPoints plotPoints = new();
 
     public RetainerSellOverlay(Plugin plugin) : base("DayTrader RetainerSell Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, true)
     {
-        //Size = new Vector2(0, 0);
-        //Flags = ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize;
-        //Flags |= ImGuiWindowFlags.NoScrollbar;
+        this.plotPoints.Add(DateTimeOffset.UtcNow, 1000f);
+        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(1), 2000f);
+        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(2), 3000f);
+        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(3), 4000f);
+        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(4), 5000f);
+        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(5), 5500f);
         RespectCloseHotkey = false;
         DisableWindowSounds = true;
         IsOpen = true;
 
-        Plugin = plugin;
+        this.plugin = plugin;
     }
 
     public void Dispose() {
@@ -61,7 +58,7 @@ public class RetainerSellOverlay : Window, IDisposable
 
     public unsafe override bool DrawConditions()
     {
-        if (!Plugin.Configuration.Enabled)
+        if (!plugin.Configuration.Enabled)
         {
             return false;
         }
@@ -84,7 +81,6 @@ public class RetainerSellOverlay : Window, IDisposable
                 {
                     var fullItemName = addon->ItemName->NodeText.ToString()[14..^10].Replace("\u0002\u0010\u0001\u0003", "");
                     
-                    Service.PluginLog.Debug(fullItemName);
                     itemHq = fullItemName.EndsWith(HqSymbol);
                     var newItemName = itemHq ? fullItemName[..^2] : fullItemName;
                     if (itemName != newItemName)
@@ -104,6 +100,34 @@ public class RetainerSellOverlay : Window, IDisposable
 
     public override void Draw()
     {
+        var requestRegion = plugin.Configuration.RequestRegion;
+        var requestDataCenter = plugin.Configuration.RequestDataCenter;
+        var requestWorlds = plugin.Configuration.RequestWorlds;
+        var showGraph = plugin.Configuration.ShowGraph;
+
+        if (ImGui.Checkbox("Request Region", ref requestRegion))
+        {
+            plugin.Configuration.RequestRegion = requestRegion;
+            plugin.Configuration.Save();
+        }
+        ImGui.SameLine();
+        if (ImGui.Checkbox("Request Data Center", ref requestDataCenter))
+        {
+            plugin.Configuration.RequestDataCenter = requestDataCenter;
+            plugin.Configuration.Save();
+        }
+        ImGui.SameLine();
+        if (ImGui.Checkbox("Request Worlds", ref requestWorlds))
+        {
+            plugin.Configuration.RequestWorlds = requestWorlds;
+            plugin.Configuration.Save();
+        }
+        ImGui.SameLine();
+        if (ImGui.Checkbox("Show Graph", ref showGraph))
+        {
+            plugin.Configuration.ShowGraph = showGraph;
+            plugin.Configuration.Save();
+        }
         Service.FontManager.H1.Push();
         ImGui.Text($"{itemName}{(itemHq ? $" {HqSymbol}" : "")}");
         Service.FontManager.H1.Pop();
@@ -114,14 +138,14 @@ public class RetainerSellOverlay : Window, IDisposable
         //    ImGui.CalcTextSize()
         //}
         //ImGui.EndChild();
-        if (Plugin.Configuration.RequestRegion)
+        if (plugin.Configuration.RequestRegion)
         {
             Service.FontManager.H2.Push();
             DayTrader.ImGuiExtensions.SeparatorText("Region");
             Service.FontManager.H2.Pop();
             ImGui.Text("TODO");
         }
-        if (Plugin.Configuration.RequestDataCenter)
+        if (plugin.Configuration.RequestDataCenter)
         {
             var dataCenter = Service.ClientState.LocalPlayer?.HomeWorld.GameData?.DataCenter?.Value;
             Service.FontManager.H2.Push();
@@ -233,11 +257,25 @@ public class RetainerSellOverlay : Window, IDisposable
         //}
         width = ImGui.GetWindowSize().X;
 
+        if (plugin.Configuration.ShowGraph)
+        {
+            drawGraph();
+        }
+    }
+
+    private void drawGraph()
+    {
+        if (plotPoints.GetSize() < 5)
+        {
+            return;
+        }
         if (ImPlot.BeginPlot($"{itemName} Price", new Vector2(500, 500), ImPlotFlags.NoTitle))
         {
+            float[] xs = plotPoints.GetXs();
+            float[] ys = plotPoints.GetYs();
             ImPlot.SetupAxisScale(ImAxis.X1, ImPlotScale.Time);
             ImPlot.SetupAxes("Time", "Price", ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel, ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel);
-            ImPlot.PlotLine("", ref xvals[0], ref yvals[0], 5);
+            ImPlot.PlotLine("", ref xs[0],  ref ys[0], plotPoints.GetSize());
             ImPlot.EndPlot();
         }
     }

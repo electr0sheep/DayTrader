@@ -12,6 +12,7 @@ namespace Plugin
         public bool RequestRegion { get; set; } = true;
         public bool RequestDataCenter { get; set; } = true;
         public bool RequestWorlds { get; set; } = true;
+        public bool ShowGraph { get; set; } = true;
 
         public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
 

@@ -9,13 +9,13 @@ namespace Plugin.Windows;
 internal unsafe class RetainerSellListOverlay : Window, IDisposable
 {
     private float height;
-    private readonly Plugin Plugin;
+    private readonly Plugin plugin;
     public RetainerSellListOverlay(Plugin plugin) : base("DayTrader RetainerSellList Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, true)
     {
         RespectCloseHotkey = false;
         IsOpen = true;
 
-        Plugin = plugin;
+        this.plugin = plugin;
     }
 
     public override bool DrawConditions()
@@ -39,33 +39,12 @@ internal unsafe class RetainerSellListOverlay : Window, IDisposable
 
     public override void Draw()
     {
-        var enabled = Plugin.Configuration.Enabled;
-        var requestRegion = Plugin.Configuration.RequestRegion;
-        var requestDataCenter = Plugin.Configuration.RequestDataCenter;
-        var requestWorlds = Plugin.Configuration.RequestWorlds;
+        var enabled = plugin.Configuration.Enabled;
 
         if (ImGui.Checkbox("Enable DayTrader", ref enabled))
         {
-            Plugin.Configuration.Enabled = enabled;
-            Plugin.Configuration.Save();
-        }
-        ImGui.SameLine();
-        if (ImGui.Checkbox("Request Region", ref requestRegion))
-        {
-            Plugin.Configuration.RequestRegion = requestRegion;
-            Plugin.Configuration.Save();
-        }
-        ImGui.SameLine();
-        if (ImGui.Checkbox("Request Data Center", ref requestDataCenter))
-        {
-            Plugin.Configuration.RequestDataCenter = requestDataCenter;
-            Plugin.Configuration.Save();
-        }
-        ImGui.SameLine();
-        if (ImGui.Checkbox("Request Worlds", ref requestWorlds))
-        {
-            Plugin.Configuration.RequestWorlds = requestWorlds;
-            Plugin.Configuration.Save();
+            plugin.Configuration.Enabled = enabled;
+            plugin.Configuration.Save();
         }
         height = ImGui.GetWindowSize().Y;
     }
