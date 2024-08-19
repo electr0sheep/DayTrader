@@ -1,27 +1,35 @@
-using FFXIVClientStructs.FFXIV.Client.System.String;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace DayTrader.Models
 {
-    [StructLayout(LayoutKind.Explicit, Size = 0x34)]
-    internal unsafe struct SaleHistoryItem
+    internal class SaleHistoryItem
     {
-        [FieldOffset(0x00)] public ushort ItemId;
-        [FieldOffset(0x04)] public uint SalePrice;
-        [FieldOffset(0x08)] public uint Date;
-        [FieldOffset(0x13)] private byte buyer;
+        public ushort ItemId { get; set; }
+        public uint SalePrice { get; set; }
+        public uint SaleDate { get; set; }
+        public string? BuyerName { get; set; }
 
-        public string BuyerName()
+        public DateTime SaleDateTime()
         {
-            fixed (byte* p = &buyer)
+            return DateTime.UnixEpoch.AddSeconds(SaleDate);
+        }
+
+        public override bool Equals(object? obj)
+        {
+            if (obj is SaleHistoryItem other)
             {
-                return Encoding.UTF8.GetString(p, 21);
+                return ItemId == other.ItemId && SalePrice == other.SalePrice && SaleDate == other.SaleDate && string.Equals(BuyerName, other.BuyerName);
             }
+            return base.Equals(obj);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(ItemId, SalePrice, SaleDate, BuyerName);
         }
     }
 }

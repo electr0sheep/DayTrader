@@ -11,6 +11,7 @@ using Dalamud.Interface.Colors;
 using Dalamud.Interface.Windowing;
 using Dalamud.Logging;
 using DayTrader;
+using DayTrader.FileHelpers;
 using DayTrader.Models;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -39,12 +40,6 @@ public class RetainerSellOverlay : Window, IDisposable
 
     public RetainerSellOverlay(Plugin plugin) : base("DayTrader RetainerSell Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, true)
     {
-        this.plotPoints.Add(DateTimeOffset.UtcNow, 1000f);
-        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(1), 2000f);
-        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(2), 3000f);
-        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(3), 4000f);
-        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(4), 5000f);
-        this.plotPoints.Add(DateTimeOffset.UtcNow.AddDays(5), 5500f);
         RespectCloseHotkey = false;
         DisableWindowSounds = true;
         IsOpen = true;
@@ -89,6 +84,16 @@ public class RetainerSellOverlay : Window, IDisposable
                         itemId = Service.DataManager.GetExcelSheet<Item>()!.Where((i) => i.Name == itemName).First().RowId;
                         dcMarketData = null;
                         worldMarketData = [];
+                        plotPoints = new();
+                        foreach (var item in Readers.ReadItemsFromCsv())
+                        {
+                            if (item.ItemId != itemId)
+                            {
+                                continue;
+                            }
+
+                            plotPoints.Add(item.SaleDateTime(), item.SalePrice);
+                        }
                     }
                 }
 
@@ -267,6 +272,7 @@ public class RetainerSellOverlay : Window, IDisposable
     {
         if (plotPoints.GetSize() < 5)
         {
+            ImGui.Text($"{plotPoints.GetSize()} plot points found. Minimum of 5 needed to show graph.");
             return;
         }
         if (ImPlot.BeginPlot($"{itemName} Price", new Vector2(500, 500), ImPlotFlags.NoTitle))

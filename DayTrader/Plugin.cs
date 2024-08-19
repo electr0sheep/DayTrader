@@ -12,11 +12,15 @@ using Dalamud.Utility;
 using ImGuiNET;
 using System.Reflection.Emit;
 using Dalamud.Game.Network;
-using DayTrader.Models;
 using System;
 using Lumina.Excel.GeneratedSheets2;
 using Dalamud.Game.Text.SeStringHandling;
 using System.Text;
+using DayTrader.FileHelpers;
+using System.Threading.Tasks;
+using DayTrader.Interop;
+using System.Collections.Generic;
+using DayTrader.Models;
 
 namespace Plugin
 {
@@ -90,13 +94,25 @@ namespace Plugin
         {
             if (direction == NetworkMessageDirection.ZoneDown && opCode == 803)
             {
+                List<DayTrader.Models.SaleHistoryItem> items = [];
                 Service.PluginLog.Debug($"{dataPtr:X}");
-                SaleHistory* saleHistory = (SaleHistory*)dataPtr;
-                foreach (SaleHistoryItem item in saleHistory->ItemList())
+                var saleHistory = (SaleHistory*)dataPtr;
+                foreach (var item in saleHistory->ItemList())
                 {
                     var itemName = Service.DataManager.GetExcelSheet<Item>()!.GetRow(item.ItemId)!.Name;
-                    Service.PluginLog.Debug($"{itemName}: {item.SalePrice}: {item.Date}: {item.BuyerName()}");
+                    // copies items to list because the memory will be reused, and I want to process the CSV writing async
+                    items.Add(new DayTrader.Models.SaleHistoryItem
+                    {
+                        ItemId = item.ItemId,
+                        SalePrice = item.SalePrice,
+                        SaleDate = item.SaleDate,
+                        BuyerName = item.BuyerName()
+                    });
                 }
+                Task.Run(() =>
+                {
+                    Writers.WriteItemsToCsv(items);
+                });
             }
             return;
         }
