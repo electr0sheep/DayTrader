@@ -14,6 +14,7 @@ namespace DayTrader.Interop
         [FieldOffset(0x00)] public ushort ItemId;
         [FieldOffset(0x04)] public uint SalePrice;
         [FieldOffset(0x08)] public uint SaleDate;
+        [FieldOffset(0x0C)] public ushort Quantity;
         [FieldOffset(0x13)] private byte buyer;
 
         public DateTime SaleDateTime()
