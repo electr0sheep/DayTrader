@@ -33,6 +33,7 @@ public class RetainerSellOverlay : Window, IDisposable
     private uint itemId;
     private bool itemHq;
     private bool fetchingDataCenterData = false;
+    private bool requestError = false;
 
     private const char HqSymbol = '';
 
@@ -40,6 +41,9 @@ public class RetainerSellOverlay : Window, IDisposable
 
     public RetainerSellOverlay(Plugin plugin) : base("DayTrader RetainerSell Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, true)
     {
+        //plotPoints.Add(DateTimeOffset.UtcNow, 1000f);
+        //plotPoints.Add(DateTimeOffset.UtcNow.AddDays(2), 2000f);
+        //plotPoints.Add(DateTimeOffset.UtcNow.AddDays(1), 3000f);
         RespectCloseHotkey = false;
         DisableWindowSounds = true;
         IsOpen = true;
@@ -80,6 +84,7 @@ public class RetainerSellOverlay : Window, IDisposable
                     var newItemName = itemHq ? fullItemName[..^2] : fullItemName;
                     if (itemName != newItemName)
                     {
+                        fetchingDataCenterData = false;
                         itemName = newItemName;
                         itemId = Service.DataManager.GetExcelSheet<Item>()!.Where((i) => i.Name == itemName).First().RowId;
                         dcMarketData = null;
@@ -93,6 +98,7 @@ public class RetainerSellOverlay : Window, IDisposable
                             }
 
                             plotPoints.Add(item.SaleDateTime(), item.SalePrice);
+                            //Service.PluginLog.Debug($"({item},{})");
                         }
                     }
                 }
@@ -161,20 +167,33 @@ public class RetainerSellOverlay : Window, IDisposable
             Service.FontManager.H3.Pop();
             if (dcMarketData == null)
             {
-                fetchingDataCenterData = false;
                 ImGuiExtensions.Spinner("DCSpinner", 10.0f, 2, ImGuiColors.TankBlue);
                 if (!fetchingDataCenterData)
                 {
                     fetchingDataCenterData = true;
+                    Service.PluginLog.Debug("MAKING UNIVERSALIS REQUEST");
                     Task.Run(async () =>
                     {
-                        dcMarketData = await UniversalisClient.GetItemInfo(itemId, dataCenter!.Name, 10, CancellationToken.None);
+                        try
+                        {
+                            this.requestError = false;
+                            dcMarketData = await UniversalisClient.GetItemInfo(itemId, dataCenter!.Name, 10, CancellationToken.None);
+                        } catch (System.Net.Http.HttpRequestException e)
+                        {
+                            Service.PluginLog.Error(e.Message);
+                            requestError = true;
+                        }
                         fetchingDataCenterData = false;
                     });
                 }
             }
             else
             {
+                if (requestError)
+                {
+                    ImGui.Text("Error fetching data");
+                    return;
+                }
                 if (itemHq)
                 {
                     ImGui.Text($"Sale Velocity: {dcMarketData.HqSaleVelocity}");
@@ -270,18 +289,23 @@ public class RetainerSellOverlay : Window, IDisposable
 
     private void drawGraph()
     {
-        if (plotPoints.GetSize() < 5)
+        //Service.PluginLog.Debug($"{plotPoints.GetSize()}");
+        if (plotPoints.GetSize() < 2)
         {
-            ImGui.Text($"{plotPoints.GetSize()} plot points found. Minimum of 5 needed to show graph.");
+            ImGui.Text($"{plotPoints.GetSize()} plot points found. Minimum of 2 needed to show graph.");
             return;
         }
         if (ImPlot.BeginPlot($"{itemName} Price", new Vector2(500, 500), ImPlotFlags.NoTitle))
         {
             float[] xs = plotPoints.GetXs();
             float[] ys = plotPoints.GetYs();
+            ImPlot.PushStyleVar(ImPlotStyleVar.FillAlpha, 0.25f);
             ImPlot.SetupAxisScale(ImAxis.X1, ImPlotScale.Time);
-            ImPlot.SetupAxes("Time", "Price", ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel, ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel);
-            ImPlot.PlotLine("", ref xs[0],  ref ys[0], plotPoints.GetSize());
+            //ImPlot.SetupAxes("Time", "Price", ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel, ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoLabel);
+            ImPlot.SetupAxisLimits(ImAxis.Y1, 0, ys.Max());
+            ImPlot.SetupAxes("Time", "Price", ImPlotAxisFlags.NoLabel | ImPlotAxisFlags.AutoFit, ImPlotAxisFlags.NoLabel);
+            //ImPlot.SetupAxesLimits(0, double.MaxValue, 0, double.MaxValue);
+            ImPlot.PlotLine("", ref xs[0],  ref ys[0], plotPoints.GetSize(), ImPlotLineFlags.Shaded);
             ImPlot.EndPlot();
         }
     }
