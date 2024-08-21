@@ -17,11 +17,6 @@ namespace DayTrader.Interop
         [FieldOffset(0x0C)] public ushort Quantity;
         [FieldOffset(0x13)] private byte buyer;
 
-        public DateTime SaleDateTime()
-        {
-            return DateTime.UnixEpoch.AddSeconds(SaleDate);
-        }
-
         public string BuyerName()
         {
             fixed (byte* p = &buyer)
@@ -29,5 +24,19 @@ namespace DayTrader.Interop
                 return Encoding.UTF8.GetString(p, 21).TrimEnd('\0');
             }
         }
+
+        public uint PricePerUnitSold()
+        {
+            // Seems weird to assume a division will be a whole number
+            // but fractions of a gil aren't a thing
+            return SalePrice / Quantity;
+        }
+
+        public DateTime SaleDateTime()
+        {
+            return DateTime.UnixEpoch.AddSeconds(SaleDate);
+        }
+
+        
     }
 }

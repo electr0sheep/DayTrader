@@ -103,10 +103,12 @@ namespace Plugin
                     // copies items to list because the memory will be reused, and I want to process the CSV writing async
                     items.Add(new DayTrader.Models.SaleHistoryItem
                     {
+                        BuyerName = item.BuyerName(),
                         ItemId = item.ItemId,
-                        SalePrice = item.SalePrice,
+                        PricePerUnitSold = item.PricePerUnitSold(),
+                        Quantity = item.Quantity,
                         SaleDate = item.SaleDate,
-                        BuyerName = item.BuyerName()
+                        TotalPrice = item.SalePrice
                     });
                 }
                 Task.Run(() =>

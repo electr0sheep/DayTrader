@@ -14,9 +14,6 @@ namespace DayTrader.Models
 
         public void Add(DateTimeOffset x, float y)
         {
-            //this.xs.Add(x.ToUnixTimeSeconds());
-            //this.ys.Add(y);
-            //Service.PluginLog.Debug($"Adding point ({x.ToUnixTimeSeconds()},{y})");
             this.points.Add(x.ToUnixTimeSeconds(), y);
         }
 
@@ -27,7 +24,6 @@ namespace DayTrader.Models
             {
                 xs.Add(pair.Key);
             }
-            //return [.. this.points.Values];
             return [.. this.xs];
         }
 
@@ -38,7 +34,6 @@ namespace DayTrader.Models
             {
                 ys.Add(pair.Value);
             }
-            //return [.. this.points.Keys];
             return [.. this.ys];
         }
 

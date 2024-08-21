@@ -97,7 +97,7 @@ public class RetainerSellOverlay : Window, IDisposable
                                 continue;
                             }
 
-                            plotPoints.Add(item.SaleDateTime(), item.SalePrice);
+                            plotPoints.Add(item.SaleDateTime(), item.PricePerUnitSold);
                             //Service.PluginLog.Debug($"({item},{})");
                         }
                     }

@@ -32,10 +32,12 @@ namespace DayTrader.FileHelpers
                 dedupedItems.Add(
                     new SaleHistoryItem
                     {
+                        BuyerName = item.BuyerName,
                         ItemId = item.ItemId,
-                        SalePrice = item.SalePrice,
+                        PricePerUnitSold = item.PricePerUnitSold,
+                        Quantity = item.Quantity,
                         SaleDate = item.SaleDate,
-                        BuyerName = item.BuyerName
+                        TotalPrice = item.TotalPrice
                     }
                 );
             }
