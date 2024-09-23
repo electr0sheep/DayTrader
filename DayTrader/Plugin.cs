@@ -92,10 +92,9 @@ namespace Plugin
 
         private unsafe void OnNetworkMessage(nint dataPtr, ushort opCode, uint sourceActorId, uint targetActorId, NetworkMessageDirection direction)
         {
-            if (direction == NetworkMessageDirection.ZoneDown && opCode == 803)
+            if (direction == NetworkMessageDirection.ZoneDown && opCode == 652)
             {
                 List<DayTrader.Models.SaleHistoryItem> items = [];
-                Service.PluginLog.Debug($"{dataPtr:X}");
                 var saleHistory = (SaleHistory*)dataPtr;
                 foreach (var item in saleHistory->ItemList())
                 {
