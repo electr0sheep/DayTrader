@@ -21,4 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\OtterGuiInternal\OtterGuiInternal.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="DalamudPackager" Version="11.0.0" />
+  </ItemGroup>
 </Project>

@@ -13,7 +13,6 @@ using ImGuiNET;
 using System.Reflection.Emit;
 using Dalamud.Game.Network;
 using System;
-using Lumina.Excel.GeneratedSheets2;
 using Dalamud.Game.Text.SeStringHandling;
 using System.Text;
 using DayTrader.FileHelpers;
@@ -21,6 +20,7 @@ using System.Threading.Tasks;
 using DayTrader.Interop;
 using System.Collections.Generic;
 using DayTrader.Models;
+using Lumina.Excel.Sheets;
 
 namespace Plugin
 {
@@ -92,13 +92,12 @@ namespace Plugin
 
         private unsafe void OnNetworkMessage(nint dataPtr, ushort opCode, uint sourceActorId, uint targetActorId, NetworkMessageDirection direction)
         {
-            if (direction == NetworkMessageDirection.ZoneDown && opCode == 652)
+            if (direction == NetworkMessageDirection.ZoneDown && opCode == 892)
             {
                 List<DayTrader.Models.SaleHistoryItem> items = [];
                 var saleHistory = (SaleHistory*)dataPtr;
                 foreach (var item in saleHistory->ItemList())
                 {
-                    var itemName = Service.DataManager.GetExcelSheet<Item>()!.GetRow(item.ItemId)!.Name;
                     // copies items to list because the memory will be reused, and I want to process the CSV writing async
                     items.Add(new DayTrader.Models.SaleHistoryItem
                     {

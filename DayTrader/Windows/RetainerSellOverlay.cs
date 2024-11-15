@@ -17,7 +17,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using ImGuiNET;
 using ImPlotNET;
-using Lumina.Excel.GeneratedSheets2;
+using Lumina.Excel.Sheets;
 
 namespace Plugin.Windows;
 
@@ -158,16 +158,17 @@ public class RetainerSellOverlay : Window, IDisposable
         }
         if (plugin.Configuration.RequestDataCenter)
         {
-            var dataCenter = Service.ClientState.LocalPlayer?.HomeWorld.GameData?.DataCenter?.Value;
+            var dataCenter = Service.ClientState.LocalPlayer?.HomeWorld.Value.DataCenter.Value.Name.ToString()!;
             Service.FontManager.H2.Push();
             DayTrader.ImGuiExtensions.SeparatorText("Data Center");
             Service.FontManager.H2.Pop();
             Service.FontManager.H3.Push();
-            ImGui.Text(Service.ClientState.LocalPlayer?.HomeWorld.GameData?.DataCenter?.Value?.Name!);
+            ImGui.Text(dataCenter);
             Service.FontManager.H3.Pop();
             if (dcMarketData == null)
             {
                 ImGuiExtensions.Spinner("DCSpinner", 10.0f, 2, ImGuiColors.TankBlue);
+
                 if (!fetchingDataCenterData)
                 {
                     fetchingDataCenterData = true;
@@ -177,7 +178,7 @@ public class RetainerSellOverlay : Window, IDisposable
                         try
                         {
                             this.requestError = false;
-                            dcMarketData = await UniversalisClient.GetItemInfo(itemId, dataCenter!.Name, 10, CancellationToken.None);
+                            dcMarketData = await UniversalisClient.GetItemInfo(itemId, dataCenter, 10, CancellationToken.None);
                         } catch (System.Net.Http.HttpRequestException e)
                         {
                             Service.PluginLog.Error(e.Message);
