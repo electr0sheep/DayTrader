@@ -2,14 +2,13 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
-using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Windowing;
-using Dalamud.Logging;
 using DayTrader;
 using DayTrader.FileHelpers;
 using DayTrader.Models;
@@ -36,8 +35,14 @@ public class RetainerSellOverlay : Window, IDisposable
     private bool requestError = false;
 
     private const char HqSymbol = '';
+    private const char GilSymbol = '';
 
     private PlotPoints plotPoints = new();
+    private float totalEarnings = 0.0f;
+    private uint unitsSold = 0;
+    private DateTime earliestSale = DateTime.MaxValue;
+    private DateTime latestSale = DateTime.MinValue;
+    private int totalNumberOfDays = 0;
 
     public RetainerSellOverlay(Plugin plugin) : base("DayTrader RetainerSell Overlay", ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.AlwaysAutoResize, true)
     {
@@ -64,17 +69,26 @@ public class RetainerSellOverlay : Window, IDisposable
 
         if (Service.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.OccupiedSummoningBell])
         {
-            var addonPtr = Service.GameGui.GetAddonByName("RetainerSell");
-            if (addonPtr == nint.Zero)
+            var retainerSellAddonPtr = Service.GameGui.GetAddonByName("RetainerSell");
+            var itemSearchResultAddonPtr = Service.GameGui.GetAddonByName("ItemSearchResult");
+            AtkUnitBase* baseNode = null;
+            if (retainerSellAddonPtr == nint.Zero)
             {
                 return false;
             }
-            var baseNode = (AtkUnitBase*)addonPtr;
+            if (itemSearchResultAddonPtr != nint.Zero)
+            {
+                baseNode = (AtkUnitBase*)itemSearchResultAddonPtr;
+            }
+            else
+            {
+                baseNode = (AtkUnitBase*)retainerSellAddonPtr;
+            }
             if (baseNode->IsVisible && baseNode->UldManager.LoadedState == AtkLoadState.Loaded)
             {
                 Position = new(baseNode->X - width, baseNode->Y);
 
-                var addon = (AddonRetainerSell*)addonPtr;
+                var addon = (AddonRetainerSell*)retainerSellAddonPtr;
 
                 if (addon->ItemName != null)
                 {
@@ -96,7 +110,17 @@ public class RetainerSellOverlay : Window, IDisposable
                             {
                                 continue;
                             }
-
+                            if (item.SaleDateTime() < earliestSale)
+                            {
+                                earliestSale = item.SaleDateTime();
+                            }
+                            if (item.SaleDateTime() > latestSale)
+                            {
+                                latestSale = item.SaleDateTime();
+                            }
+                            totalNumberOfDays = (latestSale - earliestSale).Days;
+                            totalEarnings += item.TotalPrice;
+                            unitsSold += item.Quantity;
                             plotPoints.Add(item.SaleDateTime(), item.PricePerUnitSold);
                             //Service.PluginLog.Debug($"({item},{})");
                         }
@@ -142,6 +166,10 @@ public class RetainerSellOverlay : Window, IDisposable
         Service.FontManager.H1.Push();
         ImGui.Text($"{itemName}{(itemHq ? $" {HqSymbol}" : "")}");
         Service.FontManager.H1.Pop();
+        ImGui.Text($"Units sold: {unitsSold}");
+        ImGui.Text($"Total earnings: {GilSymbol}{totalEarnings:N0}");
+        ImGui.Text($"Earnings/Day: {GilSymbol}{totalEarnings / totalNumberOfDays}");
+        //ImGui.Text($"Span: {totalNumberOfDays}");
 
         //if (ImGui.BeginChild("Glossary", ImGui.CalcTextSize("TEST"), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.AlwaysAutoResize))
         //{

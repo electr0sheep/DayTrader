@@ -3,7 +3,6 @@ using ImGuiNET;
 using System;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using DayTrader;
-using ImPlotNET;
 
 namespace Plugin.Windows;
 internal unsafe class RetainerSellListOverlay : Window, IDisposable

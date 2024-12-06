@@ -1,26 +1,14 @@
 using Dalamud.Game.Command;
-using Dalamud.IoC;
 using Dalamud.Plugin;
-using System.IO;
 using Dalamud.Interface.Windowing;
-using Dalamud.Plugin.Services;
 using Plugin.Windows;
 using DayTrader;
-using System.Linq;
-using System.Diagnostics.Contracts;
 using Dalamud.Utility;
-using ImGuiNET;
-using System.Reflection.Emit;
 using Dalamud.Game.Network;
-using System;
-using Dalamud.Game.Text.SeStringHandling;
-using System.Text;
 using DayTrader.FileHelpers;
 using System.Threading.Tasks;
 using DayTrader.Interop;
 using System.Collections.Generic;
-using DayTrader.Models;
-using Lumina.Excel.Sheets;
 
 namespace Plugin
 {
