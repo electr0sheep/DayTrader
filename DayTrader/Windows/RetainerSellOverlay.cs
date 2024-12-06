@@ -104,6 +104,9 @@ public class RetainerSellOverlay : Window, IDisposable
                         dcMarketData = null;
                         worldMarketData = [];
                         plotPoints = new();
+                        totalNumberOfDays = 0;
+                        totalEarnings = 0;
+                        unitsSold = 0;
                         foreach (var item in Readers.ReadItemsFromCsv())
                         {
                             if (item.ItemId != itemId)
@@ -168,7 +171,7 @@ public class RetainerSellOverlay : Window, IDisposable
         Service.FontManager.H1.Pop();
         ImGui.Text($"Units sold: {unitsSold}");
         ImGui.Text($"Total earnings: {GilSymbol}{totalEarnings:N0}");
-        ImGui.Text($"Earnings/Day: {GilSymbol}{totalEarnings / totalNumberOfDays}");
+        ImGui.Text($"Earnings/Day: {GilSymbol}{(totalNumberOfDays == 0 ? 0 : totalEarnings / totalNumberOfDays)}");
         //ImGui.Text($"Span: {totalNumberOfDays}");
 
         //if (ImGui.BeginChild("Glossary", ImGui.CalcTextSize("TEST"), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.AlwaysAutoResize))
