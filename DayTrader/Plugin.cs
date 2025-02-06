@@ -9,6 +9,7 @@ using DayTrader.FileHelpers;
 using System.Threading.Tasks;
 using DayTrader.Interop;
 using System.Collections.Generic;
+using System;
 
 namespace Plugin
 {
@@ -16,6 +17,7 @@ namespace Plugin
     {
         public string Name => "Day Trader";
         private const string CommandName = "/pdt";
+        private bool opcodeNotificationShown = false;
 
         public Configuration Configuration { get; init; }
         public WindowSystem WindowSystem = new("DayTrader");
@@ -80,29 +82,56 @@ namespace Plugin
 
         private unsafe void OnNetworkMessage(nint dataPtr, ushort opCode, uint sourceActorId, uint targetActorId, NetworkMessageDirection direction)
         {
-            if (direction == NetworkMessageDirection.ZoneDown && opCode == 892)
+            try
             {
-                List<DayTrader.Models.SaleHistoryItem> items = [];
-                var saleHistory = (SaleHistory*)dataPtr;
-                foreach (var item in saleHistory->ItemList())
+                if (direction == NetworkMessageDirection.ZoneDown && opCode == 500)
                 {
-                    // copies items to list because the memory will be reused, and I want to process the CSV writing async
-                    items.Add(new DayTrader.Models.SaleHistoryItem
+                    List<DayTrader.Models.SaleHistoryItem> items = [];
+                    var saleHistory = (SaleHistory*)dataPtr;
+                    foreach (var item in saleHistory->ItemList())
                     {
-                        BuyerName = item.BuyerName(),
-                        ItemId = item.ItemId,
-                        PricePerUnitSold = item.PricePerUnitSold(),
-                        Quantity = item.Quantity,
-                        SaleDate = item.SaleDate,
-                        TotalPrice = item.SalePrice
+                        // copies items to list because the memory will be reused, and I want to process the CSV writing async
+                        items.Add(new DayTrader.Models.SaleHistoryItem
+                        {
+                            BuyerName = item.BuyerName(),
+                            ItemId = item.ItemId,
+                            PricePerUnitSold = item.PricePerUnitSold(),
+                            Quantity = item.Quantity,
+                            SaleDate = item.SaleDate,
+                            TotalPrice = item.SalePrice
+                        });
+                    }
+                    if (!opcodeNotificationShown)
+                    {
+                        Service.NotificationManager.AddNotification(new()
+                        {
+                            Title = "DayTrader",
+                            Content = "Opcode is correct.",
+                            Type = Dalamud.Interface.ImGuiNotification.NotificationType.Success
+                        });
+                        opcodeNotificationShown = true;
+                    }
+                    Task.Run(() =>
+                    {
+                        Writers.WriteItemsToCsv(items);
                     });
                 }
-                Task.Run(() =>
-                {
-                    Writers.WriteItemsToCsv(items);
-                });
+                return;
             }
-            return;
+            catch (Exception e)
+            {
+                if (!opcodeNotificationShown)
+                {
+                    Service.NotificationManager.AddNotification(new()
+                    {
+                        Title = "DayTrader",
+                        Content = $"Opcode is incorrect.\n{e.Message}",
+                    
+                        Type = Dalamud.Interface.ImGuiNotification.NotificationType.Error
+                    });
+                    opcodeNotificationShown = true;
+                }
+            }
         }
 
         private void DrawUI()

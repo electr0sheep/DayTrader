@@ -170,8 +170,8 @@ public class RetainerSellOverlay : Window, IDisposable
         ImGui.Text($"{itemName}{(itemHq ? $" {HqSymbol}" : "")}");
         Service.FontManager.H1.Pop();
         ImGui.Text($"Units sold: {unitsSold}");
-        ImGui.Text($"Total earnings: {GilSymbol}{totalEarnings:N0}");
-        ImGui.Text($"Earnings/Day: {GilSymbol}{(totalNumberOfDays == 0 ? 0 : totalEarnings / totalNumberOfDays)}");
+        ImGui.Text($"Total earnings: {totalEarnings:N0}{GilSymbol}");
+        ImGui.Text($"Earnings/Day: {(totalNumberOfDays == 0 ? 0 : totalEarnings / totalNumberOfDays)}{GilSymbol}");
         //ImGui.Text($"Span: {totalNumberOfDays}");
 
         //if (ImGui.BeginChild("Glossary", ImGui.CalcTextSize("TEST"), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.AlwaysAutoResize))
