@@ -261,26 +261,26 @@ public class RetainerSellOverlay : Window, IDisposable
         width = ImGui.GetWindowSize().X;
 
         // SADDLEBAGS CHARTS
-        if (plugin.Configuration.ShowPriceHistory && dcMarketData != null)
+        if (plugin.Configuration.RequestSaddlebags && plugin.Configuration.ShowPriceHistory && dcMarketData != null)
         {
             drawPriceHistoryChart();
         }
 
-        if (plugin.Configuration.ShowSaleDistribution && dcMarketData != null)
+        if (plugin.Configuration.RequestSaddlebags && plugin.Configuration.ShowSaleDistribution && dcMarketData != null)
         {
             ImGui.SameLine();
             drawSalesDistribution();
         }
 
-        if (plugin.Configuration.ShowStackSizeHistory && dcMarketData != null)
+        if (plugin.Configuration.RequestSaddlebags && plugin.Configuration.ShowStackSizeHistory && dcMarketData != null)
         {
             ImGui.Spacing();
             drawStackSizeHistory();
         }
 
-        if (plugin.Configuration.ShowSalesPerHour && dcMarketData != null)
+        if (plugin.Configuration.RequestSaddlebags && plugin.Configuration.ShowSalesPerHour && dcMarketData != null)
         {
-            ImGui.Spacing();
+            ImGui.SameLine();
             drawSalesPerHour();
         }
     }
