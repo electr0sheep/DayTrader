@@ -84,7 +84,7 @@ namespace Plugin
         {
             try
             {
-                if (direction == NetworkMessageDirection.ZoneDown && opCode == 500)
+                if (direction == NetworkMessageDirection.ZoneDown && opCode == 896)
                 {
                     List<DayTrader.Models.SaleHistoryItem> items = [];
                     var saleHistory = (SaleHistory*)dataPtr;
