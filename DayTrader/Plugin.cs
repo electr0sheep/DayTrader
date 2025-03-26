@@ -70,7 +70,7 @@ namespace Plugin
         private void OnCommand(string command, string args)
         {
             var argv = args.Split(' ');
-            if (argv[0].IsNullOrEmpty())
+            if (string.IsNullOrEmpty(argv[0]))
             {
                 ConfigWindow.IsOpen = true;
             }
@@ -84,7 +84,7 @@ namespace Plugin
         {
             try
             {
-                if (direction == NetworkMessageDirection.ZoneDown && opCode == 896)
+                if (direction == NetworkMessageDirection.ZoneDown && opCode == 362)
                 {
                     List<DayTrader.Models.SaleHistoryItem> items = [];
                     var saleHistory = (SaleHistory*)dataPtr;
