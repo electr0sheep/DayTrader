@@ -4,12 +4,14 @@ using Dalamud.Interface.Windowing;
 using Plugin.Windows;
 using DayTrader;
 using Dalamud.Utility;
-using Dalamud.Game.Network;
+using Dalamud.Hooking;
 using DayTrader.FileHelpers;
 using System.Threading.Tasks;
 using DayTrader.Interop;
 using System.Collections.Generic;
 using System;
+using System.Runtime.InteropServices;
+using FFXIVClientStructs.FFXIV.Client.Network;
 
 namespace Plugin
 {
@@ -17,6 +19,10 @@ namespace Plugin
     {
         public string Name => "Day Trader";
         private const string CommandName = "/pdt";
+
+        // TODO: set to the current retainer SaleHistory packet opcode each patch.
+        private const ushort RetainerSaleHistoryOpcode = 0;
+
         private bool opcodeNotificationShown = false;
 
         public Configuration Configuration { get; init; }
@@ -26,8 +32,9 @@ namespace Plugin
         private RetainerSellOverlay MainWindow { get; init; }
         private HelpWindow HelpWindow { get; init; }
         private RetainerSellListOverlay RetainerSellListOverlay { get; init; }
+        private readonly Hook<PacketDispatcher.Delegates.OnReceivePacket> onReceivePacketHook;
 
-        public Plugin(IDalamudPluginInterface PluginInterface)
+        public unsafe Plugin(IDalamudPluginInterface PluginInterface)
         {
             PluginInterface.Create<Service>();
 
@@ -53,7 +60,11 @@ namespace Plugin
 
             PluginInterface.UiBuilder.Draw += DrawUI;
             PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
-            Service.GameNetwork.NetworkMessage += OnNetworkMessage;
+
+            var onReceivePacketAddr = (nint)PacketDispatcher.StaticVirtualTablePointer->OnReceivePacket;
+            this.onReceivePacketHook = Service.GameInteropProvider
+                .HookFromAddress<PacketDispatcher.Delegates.OnReceivePacket>(onReceivePacketAddr, OnReceivePacketDetour);
+            this.onReceivePacketHook.Enable();
         }
 
         public void Dispose()
@@ -64,7 +75,7 @@ namespace Plugin
             MainWindow.Dispose();
             
             Service.CommandManager.RemoveHandler(CommandName);
-            Service.GameNetwork.NetworkMessage -= OnNetworkMessage;
+            this.onReceivePacketHook.Dispose();
         }
 
         private void OnCommand(string command, string args)
@@ -80,14 +91,17 @@ namespace Plugin
             }
         }
 
-        private unsafe void OnNetworkMessage(nint dataPtr, ushort opCode, uint sourceActorId, uint targetActorId, NetworkMessageDirection direction)
+        private unsafe void OnReceivePacketDetour(PacketDispatcher* dispatcher, uint targetId, IntPtr dataPtr)
         {
+            // dataPtr arrives 0x10 into the packet header; back up to reach the start.
+            dataPtr -= 0x10;
             try
             {
-                if (direction == NetworkMessageDirection.ZoneDown && opCode == 641)
+                var opCode = (ushort)Marshal.ReadInt16(dataPtr, 0x12);
+                if (opCode == RetainerSaleHistoryOpcode)
                 {
                     List<DayTrader.Models.SaleHistoryItem> items = [];
-                    var saleHistory = (SaleHistory*)dataPtr;
+                    var saleHistory = (SaleHistory*)(dataPtr + 0x20);
                     foreach (var item in saleHistory->ItemList())
                     {
                         // copies items to list because the memory will be reused, and I want to process the CSV writing async
@@ -116,7 +130,6 @@ namespace Plugin
                         Writers.WriteItemsToCsv(items);
                     });
                 }
-                return;
             }
             catch (Exception e)
             {
@@ -126,12 +139,13 @@ namespace Plugin
                     {
                         Title = "DayTrader",
                         Content = $"Opcode is incorrect.\n{e.Message}",
-                    
+
                         Type = Dalamud.Interface.ImGuiNotification.NotificationType.Error
                     });
                     opcodeNotificationShown = true;
                 }
             }
+            this.onReceivePacketHook.Original(dispatcher, targetId, dataPtr + 0x10);
         }
 
         private void DrawUI()

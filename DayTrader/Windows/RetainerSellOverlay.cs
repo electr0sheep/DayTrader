@@ -7,6 +7,8 @@ using System.Linq;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
+using Dalamud.Bindings.ImGui;
+using Dalamud.Bindings.ImPlot;
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Windowing;
 using DayTrader;
@@ -15,8 +17,6 @@ using DayTrader.Models;
 using DayTrader.Models.Saddlebags;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
-using ImGuiNET;
-using ImPlotNET;
 using Lumina.Excel.Sheets;
 
 namespace Plugin.Windows;
@@ -76,17 +76,17 @@ public class RetainerSellOverlay : Window, IDisposable
             }
             if (itemSearchResultAddonPtr != nint.Zero)
             {
-                baseNode = (AtkUnitBase*)itemSearchResultAddonPtr;
+                baseNode = (AtkUnitBase*)itemSearchResultAddonPtr.Address;
             }
             else
             {
-                baseNode = (AtkUnitBase*)retainerSellAddonPtr;
+                baseNode = (AtkUnitBase*)retainerSellAddonPtr.Address;
             }
             if (baseNode->IsVisible && baseNode->UldManager.LoadedState == AtkLoadState.Loaded)
             {
                 Position = new(baseNode->X - width, baseNode->Y);
 
-                var addon = (AddonRetainerSell*)retainerSellAddonPtr;
+                var addon = (AddonRetainerSell*)retainerSellAddonPtr.Address;
 
                 if (addon->ItemName != null)
                 {
@@ -141,8 +141,8 @@ public class RetainerSellOverlay : Window, IDisposable
         var showSaleDistribution = plugin.Configuration.ShowSaleDistribution;
         var showStackSizeHistory = plugin.Configuration.ShowStackSizeHistory;
         var showSalesPerHour = plugin.Configuration.ShowSalesPerHour;
-        var homeWorld = Service.ClientState.LocalPlayer?.HomeWorld.Value.Name.ToString()!;
-        var dataCenter = Service.ClientState.LocalPlayer?.HomeWorld.Value.DataCenter.Value.Name.ToString()!;
+        var homeWorld = Service.ObjectTable.LocalPlayer?.HomeWorld.Value.Name.ToString()!;
+        var dataCenter = Service.ObjectTable.LocalPlayer?.HomeWorld.Value.DataCenter.Value.Name.ToString()!;
 
         // CONFIGS
         if (ImGui.Checkbox("Get Saddlebags Stats", ref requestSaddlebags))
@@ -189,7 +189,7 @@ public class RetainerSellOverlay : Window, IDisposable
         ImGui.Text($"{itemName}{(itemHq ? $" {HqSymbol}" : "")}");
         Service.FontManager.H1.Pop();
         Service.FontManager.H2.Push();
-        DayTrader.ImGuiExtensions.SeparatorText($"{Service.ClientState.LocalPlayer?.Name} Stats");
+        ImGuiExtensions.SeparatorText($"{Service.ObjectTable.LocalPlayer?.Name} Stats");
         Service.FontManager.H2.Pop();
         ImGui.Text($"Units sold: {unitsSold}");
         ImGui.Text($"Total earnings: {totalEarnings:N0}{GilSymbol}");
@@ -205,14 +205,14 @@ public class RetainerSellOverlay : Window, IDisposable
         if (plugin.Configuration.RequestSaddlebags)
         {
             Service.FontManager.H2.Push();
-            DayTrader.ImGuiExtensions.SeparatorText("Data Center");
+            ImGuiExtensions.SeparatorText("Data Center");
             Service.FontManager.H2.Pop();
             Service.FontManager.H3.Push();
             ImGui.Text(dataCenter);
             Service.FontManager.H3.Pop();
             if (dcMarketData == null)
             {
-                ImGuiExtensions.Spinner("DCSpinner", 10.0f, 2, ImGuiColors.TankBlue);
+                ImGuiExtensions.Spinner(10.0f, 2, ImGuiColors.TankBlue);
 
                 if (!fetchingDataCenterData)
                 {
@@ -292,7 +292,7 @@ public class RetainerSellOverlay : Window, IDisposable
             ImGui.Text($"{plotPoints.GetSize()} plot points found. Minimum of 2 needed to show graph.");
             return;
         }
-        if (ImPlot.BeginPlot($"{Service.ClientState.LocalPlayer?.Name} Earning/Unit Sold", new Vector2(500, 250), ImPlotFlags.NoMouseText | ImPlotFlags.CanvasOnly))
+        if (ImPlot.BeginPlot($"{Service.ObjectTable.LocalPlayer?.Name} Earning/Unit Sold", new Vector2(500, 250), ImPlotFlags.NoMouseText | ImPlotFlags.CanvasOnly))
         {
             float[] xs = plotPoints.GetXs();
             float[] ys = plotPoints.GetYs();
@@ -310,7 +310,7 @@ public class RetainerSellOverlay : Window, IDisposable
         if (ImPlot.BeginPlot($"Price History###{itemName}", new Vector2(500, 250), ImPlotFlags.NoMouseText | ImPlotFlags.CanvasOnly))
         {
             string[] xs = dcMarketData!.PriceHistory.Select(i => i.PriceRange).ToArray();
-            uint[] ys = dcMarketData!.PriceHistory.Select(i => i.SalesAmount).ToArray();
+            float[] ys = [.. dcMarketData!.PriceHistory.Select(i => i.SalesAmount)];
             for (int x = 0; x < xs.Length; x++)
             {
                 ImPlot.PlotText(xs[x], x - 0.25f, -100.0f, new Vector2(0, 0), ImPlotTextFlags.Vertical);
@@ -327,7 +327,7 @@ public class RetainerSellOverlay : Window, IDisposable
         if (ImPlot.BeginPlot($"Sales Distribution###{itemName}", new Vector2(500, 250), ImPlotFlags.NoMouseText | ImPlotFlags.CanvasOnly))
         {
             string[] xs = typeof(ServerDistribution).GetProperties().Select(i => i.Name).ToArray();
-            uint[] ys = dcMarketData!.ServerDistribution.Values();
+            float[] ys = dcMarketData!.ServerDistribution.Values().Select(v => (float)v).ToArray();
             for (int x = 0; x < xs.Length; x++)
             {
                 ImPlot.PlotText(xs[x], x - 0.25f, -50.0f, new Vector2(0, 0), ImPlotTextFlags.Vertical);
@@ -368,8 +368,8 @@ public class RetainerSellOverlay : Window, IDisposable
     {
         if (ImPlot.BeginPlot($"Sales per Hour###{itemName}", new Vector2(500, 250), ImPlotFlags.NoMouseText | ImPlotFlags.CanvasOnly))
         {
-            uint[] xs = dcMarketData!.SalesByHour.Select(i => i.Time).ToArray();
-            uint[] ys = dcMarketData!.SalesByHour.Select(i => i.SaleAmt).ToArray();
+            float[] xs = dcMarketData!.SalesByHour.Select(i => (float)i.Time).ToArray();
+            float[] ys = dcMarketData!.SalesByHour.Select(i => (float)i.SaleAmt).ToArray();
             ImPlot.PushStyleVar(ImPlotStyleVar.FillAlpha, 0.25f);
             ImPlot.SetupAxisScale(ImAxis.X1, ImPlotScale.Time);
             ImPlot.SetupAxisLimits(ImAxis.Y1, 0.0f, ys.Max());
