@@ -44,6 +44,7 @@ internal unsafe class RetainerSellListOverlay : Window, IDisposable
         {
             plugin.Configuration.Enabled = enabled;
             plugin.Configuration.Save();
+            plugin.RetainerSellListColumn.Refresh();
         }
         height = ImGui.GetWindowSize().Y;
     }

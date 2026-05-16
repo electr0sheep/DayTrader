@@ -12,6 +12,7 @@ namespace DayTrader
     internal class Service
     {
         public static FontManager FontManager { get; set; } = null!;
+        [PluginService] public static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
         [PluginService] public static IClientState ClientState { get; private set; } = null!;
         [PluginService] public static ICommandManager CommandManager { get; private set; } = null!;
         [PluginService] public static ICondition Condition { get; private set; } = null!;

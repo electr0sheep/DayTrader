@@ -5,6 +5,7 @@ using Plugin.Windows;
 using DayTrader;
 using Dalamud.Utility;
 using Dalamud.Hooking;
+using DayTrader.Addons;
 using DayTrader.FileHelpers;
 using System.Threading.Tasks;
 using DayTrader.Interop;
@@ -32,6 +33,7 @@ namespace Plugin
         private HelpWindow HelpWindow { get; init; }
         private RetainerSellListOverlay RetainerSellListOverlay { get; init; }
         private DashboardWindow Dashboard { get; init; }
+        internal RetainerSellListColumn RetainerSellListColumn { get; init; }
         private readonly Hook<PacketDispatcher.Delegates.OnReceivePacket> onReceivePacketHook;
 
         public unsafe Plugin(IDalamudPluginInterface PluginInterface)
@@ -48,6 +50,7 @@ namespace Plugin
             HelpWindow = new HelpWindow(this);
             RetainerSellListOverlay = new(this);
             Dashboard = new DashboardWindow(this);
+            RetainerSellListColumn = new RetainerSellListColumn(this);
 
             WindowSystem.AddWindow(ConfigWindow);
             WindowSystem.AddWindow(MainWindow);
@@ -76,6 +79,7 @@ namespace Plugin
             ConfigWindow.Dispose();
             MainWindow.Dispose();
             Dashboard.Dispose();
+            RetainerSellListColumn.Dispose();
 
             Service.CommandManager.RemoveHandler(CommandName);
             this.onReceivePacketHook.Dispose();
