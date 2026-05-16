@@ -7,11 +7,11 @@ namespace DayTrader.Models
     {
         private List<float> xs = [];
         private List<float> ys = [];
-        private readonly SortedList<float, float> points = [];
+        private readonly SortedList<DateTimeOffset, float> points = [];
 
         public void Add(DateTimeOffset x, float y)
         {
-            this.points.Add(x.ToUnixTimeSeconds(), y);
+            this.points.Add(x, y);
         }
 
         public float[] GetXs()
@@ -19,7 +19,7 @@ namespace DayTrader.Models
             xs = [];
             foreach (var pair in points)
             {
-                xs.Add(pair.Key);
+                xs.Add(pair.Key.ToUnixTimeSeconds());
             }
             return [.. this.xs];
         }

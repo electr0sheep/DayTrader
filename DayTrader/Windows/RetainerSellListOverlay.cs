@@ -1,8 +1,8 @@
 using Dalamud.Interface.Windowing;
-using ImGuiNET;
 using System;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using DayTrader;
+using Dalamud.Bindings.ImGui;
 
 namespace Plugin.Windows;
 internal unsafe class RetainerSellListOverlay : Window, IDisposable
@@ -26,7 +26,7 @@ internal unsafe class RetainerSellListOverlay : Window, IDisposable
             {
                 return false;
             }
-            var baseNode = (AtkUnitBase*)addonPtr;
+            var baseNode = (AtkUnitBase*)addonPtr.Address;
             if (baseNode->IsVisible && baseNode->UldManager.LoadedState == AtkLoadState.Loaded)
             {
                 Position = new(baseNode->X, baseNode->Y - height);

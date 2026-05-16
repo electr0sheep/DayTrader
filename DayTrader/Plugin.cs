@@ -4,11 +4,14 @@ using Dalamud.Interface.Windowing;
 using Plugin.Windows;
 using DayTrader;
 using Dalamud.Utility;
-using Dalamud.Game.Network;
+using Dalamud.Hooking;
 using DayTrader.FileHelpers;
 using System.Threading.Tasks;
 using DayTrader.Interop;
 using System.Collections.Generic;
+using System;
+using System.Runtime.InteropServices;
+using FFXIVClientStructs.FFXIV.Client.Network;
 
 namespace Plugin
 {
@@ -17,6 +20,10 @@ namespace Plugin
         public string Name => "Day Trader";
         private const string CommandName = "/pdt";
 
+        private const ushort RetainerSaleHistoryOpcode = 185;
+
+        private bool opcodeNotificationShown = false;
+
         public Configuration Configuration { get; init; }
         public WindowSystem WindowSystem = new("DayTrader");
 
@@ -24,8 +31,10 @@ namespace Plugin
         private RetainerSellOverlay MainWindow { get; init; }
         private HelpWindow HelpWindow { get; init; }
         private RetainerSellListOverlay RetainerSellListOverlay { get; init; }
+        private DashboardWindow Dashboard { get; init; }
+        private readonly Hook<PacketDispatcher.Delegates.OnReceivePacket> onReceivePacketHook;
 
-        public Plugin(IDalamudPluginInterface PluginInterface)
+        public unsafe Plugin(IDalamudPluginInterface PluginInterface)
         {
             PluginInterface.Create<Service>();
 
@@ -38,71 +47,115 @@ namespace Plugin
             MainWindow = new RetainerSellOverlay(this);
             HelpWindow = new HelpWindow(this);
             RetainerSellListOverlay = new(this);
-            
+            Dashboard = new DashboardWindow(this);
+
             WindowSystem.AddWindow(ConfigWindow);
             WindowSystem.AddWindow(MainWindow);
             WindowSystem.AddWindow(HelpWindow);
             WindowSystem.AddWindow(RetainerSellListOverlay);
+            WindowSystem.AddWindow(Dashboard);
 
             Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
             {
-                HelpMessage = "Displays Day Trader config window"
+                HelpMessage = "Open the Day Trader sale-history dashboard. Subcommands: 'config', 'help'."
             });
 
             PluginInterface.UiBuilder.Draw += DrawUI;
             PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
-            Service.GameNetwork.NetworkMessage += OnNetworkMessage;
+
+            var onReceivePacketAddr = (nint)PacketDispatcher.StaticVirtualTablePointer->OnReceivePacket;
+            this.onReceivePacketHook = Service.GameInteropProvider
+                .HookFromAddress<PacketDispatcher.Delegates.OnReceivePacket>(onReceivePacketAddr, OnReceivePacketDetour);
+            this.onReceivePacketHook.Enable();
         }
 
         public void Dispose()
         {
             WindowSystem.RemoveAllWindows();
-            
+
             ConfigWindow.Dispose();
             MainWindow.Dispose();
-            
+            Dashboard.Dispose();
+
             Service.CommandManager.RemoveHandler(CommandName);
-            Service.GameNetwork.NetworkMessage -= OnNetworkMessage;
+            this.onReceivePacketHook.Dispose();
         }
 
         private void OnCommand(string command, string args)
         {
             var argv = args.Split(' ');
-            if (argv[0].IsNullOrEmpty())
+            if (string.IsNullOrEmpty(argv[0]))
+            {
+                Dashboard.IsOpen = true;
+                return;
+            }
+            if (argv[0] == "config")
             {
                 ConfigWindow.IsOpen = true;
+                return;
             }
             if (argv[0] == "help")
             {
                 HelpWindow.IsOpen = true;
+                return;
             }
         }
 
-        private unsafe void OnNetworkMessage(nint dataPtr, ushort opCode, uint sourceActorId, uint targetActorId, NetworkMessageDirection direction)
+        private unsafe void OnReceivePacketDetour(PacketDispatcher* dispatcher, uint targetId, IntPtr dataPtr)
         {
-            if (direction == NetworkMessageDirection.ZoneDown && opCode == 892)
+            // dataPtr arrives 0x10 into the packet header; back up to reach the start.
+            dataPtr -= 0x10;
+            try
             {
-                List<DayTrader.Models.SaleHistoryItem> items = [];
-                var saleHistory = (SaleHistory*)dataPtr;
-                foreach (var item in saleHistory->ItemList())
+                var opCode = (ushort)Marshal.ReadInt16(dataPtr, 0x12);
+                if (opCode == RetainerSaleHistoryOpcode)
                 {
-                    // copies items to list because the memory will be reused, and I want to process the CSV writing async
-                    items.Add(new DayTrader.Models.SaleHistoryItem
+                    List<DayTrader.Models.SaleHistoryItem> items = [];
+                    var saleHistory = (SaleHistory*)(dataPtr + 0x20);
+                    foreach (var item in saleHistory->ItemList())
                     {
-                        BuyerName = item.BuyerName(),
-                        ItemId = item.ItemId,
-                        PricePerUnitSold = item.PricePerUnitSold(),
-                        Quantity = item.Quantity,
-                        SaleDate = item.SaleDate,
-                        TotalPrice = item.SalePrice
+                        // copies items to list because the memory will be reused, and I want to process the CSV writing async
+                        items.Add(new DayTrader.Models.SaleHistoryItem
+                        {
+                            BuyerName = item.BuyerName(),
+                            ItemId = item.ItemId,
+                            PricePerUnitSold = item.PricePerUnitSold(),
+                            Quantity = item.Quantity,
+                            SaleDate = item.SaleDate,
+                            TotalPrice = item.SalePrice
+                        });
+                    }
+                    if (!opcodeNotificationShown)
+                    {
+                        Service.NotificationManager.AddNotification(new()
+                        {
+                            Title = "DayTrader",
+                            Content = "Opcode is correct.",
+                            Type = Dalamud.Interface.ImGuiNotification.NotificationType.Success
+                        });
+                        opcodeNotificationShown = true;
+                    }
+                    Task.Run(() =>
+                    {
+                        Writers.WriteItemsToCsv(items);
                     });
                 }
-                Task.Run(() =>
-                {
-                    Writers.WriteItemsToCsv(items);
-                });
             }
-            return;
+            catch (Exception e)
+            {
+                if (!opcodeNotificationShown)
+                {
+                    Service.NotificationManager.AddNotification(new()
+                    {
+                        Title = "DayTrader",
+                        Content = $"Opcode is incorrect.\n{e.Message}",
+
+                        Type = Dalamud.Interface.ImGuiNotification.NotificationType.Error
+                    });
+                    opcodeNotificationShown = true;
+                }
+            }
+            this.onReceivePacketHook.Original(dispatcher, targetId, dataPtr + 0x10);
         }
 
         private void DrawUI()
