@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Numerics;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
@@ -97,6 +98,7 @@ public class RetainerSellOverlay : Window, IDisposable
                     if (itemName != newItemName)
                     {
                         fetchingDataCenterData = false;
+                        requestError = false;
                         itemName = newItemName;
                         itemId = Service.DataManager.GetExcelSheet<Item>()!.Where((i) => i.Name == itemName).First().RowId;
                         dcMarketData = null;
@@ -212,34 +214,40 @@ public class RetainerSellOverlay : Window, IDisposable
             Service.FontManager.H3.Pop();
             if (dcMarketData == null)
             {
-                ImGuiExtensions.Spinner(10.0f, 2, ImGuiColors.TankBlue);
-
-                if (!fetchingDataCenterData)
+                if (requestError)
                 {
-                    fetchingDataCenterData = true;
-                    Service.PluginLog.Debug("MAKING SADDLEBAGS REQUEST");
-                    Task.Run(async () =>
+                    ImGui.Text("Error fetching data");
+                }
+                else
+                {
+                    ImGuiExtensions.Spinner(10.0f, 2, ImGuiColors.TankBlue);
+
+                    if (!fetchingDataCenterData)
                     {
-                        try
+                        fetchingDataCenterData = true;
+                        Service.PluginLog.Debug("MAKING SADDLEBAGS REQUEST");
+                        Task.Run(async () =>
                         {
-                            this.requestError = false;
-                            dcMarketData = await SaddlebagsClient.GetItemInfo(itemId, itemHq, homeWorld, CancellationToken.None);
-                        } catch (System.Net.Http.HttpRequestException e)
-                        {
-                            Service.PluginLog.Error(e.Message);
-                            requestError = true;
-                        }
-                        fetchingDataCenterData = false;
-                    });
+                            try
+                            {
+                                this.requestError = false;
+                                dcMarketData = await SaddlebagsClient.GetItemInfo(itemId, itemHq, homeWorld, CancellationToken.None);
+                            }
+                            catch (Exception e)
+                            {
+                                Service.PluginLog.Error(e.Message);
+                                requestError = true;
+                            }
+                            finally
+                            {
+                                fetchingDataCenterData = false;
+                            }
+                        });
+                    }
                 }
             }
             else
             {
-                if (requestError)
-                {
-                    ImGui.Text("Error fetching data");
-                    return;
-                }
                 ImGui.Text($"Median Price Per Unit Sold: {dcMarketData.MedianPPU:n0}{GilSymbol}");
                 //if (ImGui.IsItemHovered())
                 //{
@@ -268,7 +276,6 @@ public class RetainerSellOverlay : Window, IDisposable
 
         if (plugin.Configuration.RequestSaddlebags && plugin.Configuration.ShowSaleDistribution && dcMarketData != null)
         {
-            ImGui.SameLine();
             drawSalesDistribution();
         }
 
@@ -280,7 +287,6 @@ public class RetainerSellOverlay : Window, IDisposable
 
         if (plugin.Configuration.RequestSaddlebags && plugin.Configuration.ShowSalesPerHour && dcMarketData != null)
         {
-            ImGui.SameLine();
             drawSalesPerHour();
         }
     }
@@ -307,17 +313,27 @@ public class RetainerSellOverlay : Window, IDisposable
 
     private void drawPriceHistoryChart()
     {
-        if (ImPlot.BeginPlot($"Price History###{itemName}", new Vector2(500, 250), ImPlotFlags.NoMouseText | ImPlotFlags.CanvasOnly))
+        if (ImPlot.BeginPlot($"Price History###{itemName}", new Vector2(500, 250), ImPlotFlags.NoMouseText))
         {
-            string[] xs = dcMarketData!.PriceHistory.Select(i => i.PriceRange).ToArray();
+            string[] xs = dcMarketData!.PriceHistory.Select(i => AbbreviateNumbers(i.PriceRange)).ToArray();
             float[] ys = [.. dcMarketData!.PriceHistory.Select(i => i.SalesAmount)];
+
+            var maxY = ys.Max();
+            var labelYTop = -maxY * 0.15f;
+            var labelYBottom = -maxY * 0.30f;
+
+            ImPlot.SetupAxes("Price Ranges in Gil", "# of sales", ImPlotAxisFlags.NoTickLabels, 0);
+            ImPlot.SetupAxisLimits(ImAxis.X1, -0.5, xs.Length - 0.5, ImPlotCond.Once);
+            ImPlot.SetupAxisLimits(ImAxis.Y1, -maxY * 0.42f, maxY * 1.1f, ImPlotCond.Once);
+            ImPlot.SetupAxisTicks(ImAxis.X1, 0, xs.Length - 1, xs.Length, xs);
+
+            ImPlot.PlotBars($"{itemName} Price History Plot Bar", ref ys[0], dcMarketData!.PriceHistory.Length);
+
             for (int x = 0; x < xs.Length; x++)
             {
-                ImPlot.PlotText(xs[x], x - 0.25f, -100.0f, new Vector2(0, 0), ImPlotTextFlags.Vertical);
+                var rowY = (x % 2 == 0) ? labelYTop : labelYBottom;
+                ImPlot.PlotText(xs[x], x, rowY, new Vector2(0, 0), ImPlotTextFlags.None);
             }
-            ImPlot.SetupAxisTicks(ImAxis.X1, 0, xs.Length - 1, xs.Length, xs);
-            ImPlot.SetupAxes("Price Ranges in Gil", "# of sales", ImPlotAxisFlags.AutoFit | ImPlotAxisFlags.NoTickLabels, ImPlotAxisFlags.AutoFit);
-            ImPlot.PlotBars($"{itemName} Price History Plot Bar", ref ys[0], dcMarketData!.PriceHistory.Length);
             ImPlot.EndPlot();
         }
     }
@@ -377,5 +393,19 @@ public class RetainerSellOverlay : Window, IDisposable
             ImPlot.PlotLine($"{itemName} Sales per Hour Plot Line", ref xs[0], ref ys[0], plotPoints.GetSize(), ImPlotLineFlags.Shaded);
             ImPlot.EndPlot();
         }
+    }
+
+    private static string AbbreviateNumbers(string label)
+    {
+        return Regex.Replace(label, @"\d[\d,]*", match =>
+        {
+            var digits = match.Value.Replace(",", "");
+            if (long.TryParse(digits, out var n))
+            {
+                if (n >= 1_000_000) return $"{n / 1_000_000.0:0.#}m";
+                if (n >= 1_000) return $"{n / 1_000.0:0.#}k";
+            }
+            return match.Value;
+        });
     }
 }

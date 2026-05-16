@@ -18,7 +18,8 @@ namespace DayTrader
         {
             using (var client = new HttpClient())
             {
-                var uriBuilder = new UriBuilder($"http://api.saddlebagexchange.com/api/history");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("DayTrader");
+                var uriBuilder = new UriBuilder($"https://docs.saddlebagexchange.com/api/ffxiv/v2/history");
                 var jsonPayload = new {
                     item_id = itemId,
                     home_server = worldName,
@@ -37,16 +38,15 @@ namespace DayTrader
                 //    .GetStreamAsync(uriBuilder.Uri, cancellationToken)
                 //    .ConfigureAwait(false);
 
+                var body = await res.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    var parsedRes = await JsonSerializer
-                        .DeserializeAsync<ItemHistory>(res.Content.ReadAsStream(cancellationToken), cancellationToken: cancellationToken)
-                        .ConfigureAwait(false);
-
+                    var parsedRes = JsonSerializer.Deserialize<ItemHistory>(body);
                     return parsedRes!;
                 } catch (JsonException ex)
                 {
-                    Service.PluginLog.Debug(ex.Message);
+                    Service.PluginLog.Error($"Failed to parse saddlebags response (status {(int)res.StatusCode}): {ex.Message}");
+                    Service.PluginLog.Error($"Body: {body}");
                     throw;
                 }
             }

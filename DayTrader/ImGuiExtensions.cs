@@ -19,7 +19,7 @@ namespace DayTrader
             var avail = ImGui.GetContentRegionAvail();
             var minHeight = Math.Max(textSize.Y + padding.Y * 2, thickness);
 
-            ImGui.Dummy(new Vector2(avail.X, minHeight));
+            ImGui.Dummy(new Vector2(0, minHeight));
 
             var sepColor = ImGui.GetColorU32(ImGuiCol.Separator);
             var textColor = ImGui.GetColorU32(ImGuiCol.Text);

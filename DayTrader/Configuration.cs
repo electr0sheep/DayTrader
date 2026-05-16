@@ -4,6 +4,14 @@ using System;
 
 namespace Plugin
 {
+    public enum DashboardTimeRange
+    {
+        AllTime = 0,
+        Last30Days = 1,
+        Last7Days = 2,
+        Today = 3,
+    }
+
     [Serializable]
     public class Configuration : IPluginConfiguration
     {
@@ -15,6 +23,8 @@ namespace Plugin
         public bool ShowStackSizeHistory { get; set; } = true;
         public bool ShowSalesPerHour { get; set; } = true;
         public bool ShowSalesGraph { get; set; } = true;
+
+        public DashboardTimeRange DashboardTimeRange { get; set; } = DashboardTimeRange.AllTime;
 
         public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
 

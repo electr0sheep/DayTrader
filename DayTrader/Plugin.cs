@@ -20,8 +20,7 @@ namespace Plugin
         public string Name => "Day Trader";
         private const string CommandName = "/pdt";
 
-        // TODO: set to the current retainer SaleHistory packet opcode each patch.
-        private const ushort RetainerSaleHistoryOpcode = 0;
+        private const ushort RetainerSaleHistoryOpcode = 185;
 
         private bool opcodeNotificationShown = false;
 
@@ -32,6 +31,7 @@ namespace Plugin
         private RetainerSellOverlay MainWindow { get; init; }
         private HelpWindow HelpWindow { get; init; }
         private RetainerSellListOverlay RetainerSellListOverlay { get; init; }
+        private DashboardWindow Dashboard { get; init; }
         private readonly Hook<PacketDispatcher.Delegates.OnReceivePacket> onReceivePacketHook;
 
         public unsafe Plugin(IDalamudPluginInterface PluginInterface)
@@ -47,15 +47,17 @@ namespace Plugin
             MainWindow = new RetainerSellOverlay(this);
             HelpWindow = new HelpWindow(this);
             RetainerSellListOverlay = new(this);
-            
+            Dashboard = new DashboardWindow(this);
+
             WindowSystem.AddWindow(ConfigWindow);
             WindowSystem.AddWindow(MainWindow);
             WindowSystem.AddWindow(HelpWindow);
             WindowSystem.AddWindow(RetainerSellListOverlay);
+            WindowSystem.AddWindow(Dashboard);
 
             Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
             {
-                HelpMessage = "Displays Day Trader config window"
+                HelpMessage = "Open the Day Trader sale-history dashboard. Subcommands: 'config', 'help'."
             });
 
             PluginInterface.UiBuilder.Draw += DrawUI;
@@ -70,10 +72,11 @@ namespace Plugin
         public void Dispose()
         {
             WindowSystem.RemoveAllWindows();
-            
+
             ConfigWindow.Dispose();
             MainWindow.Dispose();
-            
+            Dashboard.Dispose();
+
             Service.CommandManager.RemoveHandler(CommandName);
             this.onReceivePacketHook.Dispose();
         }
@@ -83,11 +86,18 @@ namespace Plugin
             var argv = args.Split(' ');
             if (string.IsNullOrEmpty(argv[0]))
             {
+                Dashboard.IsOpen = true;
+                return;
+            }
+            if (argv[0] == "config")
+            {
                 ConfigWindow.IsOpen = true;
+                return;
             }
             if (argv[0] == "help")
             {
                 HelpWindow.IsOpen = true;
+                return;
             }
         }
 
