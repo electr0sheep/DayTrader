@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Graphics;
 using FFXIVClientStructs.FFXIV.Client.System.Memory;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -8,10 +10,11 @@ using Plugin;
 
 namespace DayTrader.Addons;
 
-// Hello-world v2: adds an "Age" column to the RetainerSellList addon.
-// Header text is attached inside the column-header host (#5); per-row "TODO"
-// text is attached inside each row component (children of the list #11), so it
-// rides with the row when the list scrolls or rebinds.
+// Adds an "Age" column to the RetainerSellList addon. Header text is attached
+// inside the column-header host (#5); per-row age text is attached inside each
+// row component (children of the list #11), so it rides with the row when the
+// list scrolls or rebinds. Age data comes from ListingTimestampStore, populated
+// by the InventoryManager hooks in Plugin.cs.
 internal unsafe class RetainerSellListColumn : IDisposable
 {
     private const string AddonName = "RetainerSellList";
@@ -46,17 +49,23 @@ internal unsafe class RetainerSellListColumn : IDisposable
     private readonly AtkComponentNode*[] rowOwners = new AtkComponentNode*[MaxRows];
     private bool columnApplied;
     private bool diagDumped;
+    private long lastPeriodicRefreshUnix;
+    private const long PeriodicRefreshIntervalSeconds = 60;
 
     public RetainerSellListColumn(Plugin.Plugin plugin)
     {
         this.plugin = plugin;
         Service.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, AddonName, OnSetup);
+        Service.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, AddonName, OnRefresh);
+        Service.AddonLifecycle.RegisterListener(AddonEvent.PostUpdate, AddonName, OnUpdate);
         Service.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, AddonName, OnFinalize);
     }
 
     public void Dispose()
     {
         Service.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, AddonName, OnSetup);
+        Service.AddonLifecycle.UnregisterListener(AddonEvent.PostRefresh, AddonName, OnRefresh);
+        Service.AddonLifecycle.UnregisterListener(AddonEvent.PostUpdate, AddonName, OnUpdate);
         Service.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, AddonName, OnFinalize);
     }
 
@@ -90,6 +99,45 @@ internal unsafe class RetainerSellListColumn : IDisposable
         RemoveColumn(addon);
     }
 
+    // Fires after the addon refreshes its data — i.e., when the user lists a new item,
+    // adjusts a price, or sells an item. AtkValues are already up to date at this point,
+    // so we just re-resolve and rewrite each existing row's age text in place.
+    private void OnRefresh(AddonEvent type, AddonArgs args)
+    {
+        if (!plugin.Configuration.Enabled) return;
+        if (!columnApplied) return;
+        var addon = (AtkUnitBase*)args.Addon.Address;
+        if (addon == null) return;
+        UpdateAgeTexts(addon);
+        lastPeriodicRefreshUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    }
+
+    // Fires every UI frame. Cheap throttle: only re-resolve age texts once a minute,
+    // so "2m" ticks over to "3m" without the user having to touch the addon.
+    private void OnUpdate(AddonEvent type, AddonArgs args)
+    {
+        if (!plugin.Configuration.Enabled) return;
+        if (!columnApplied) return;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (now - lastPeriodicRefreshUnix < PeriodicRefreshIntervalSeconds) return;
+        lastPeriodicRefreshUnix = now;
+        var addon = (AtkUnitBase*)args.Addon.Address;
+        if (addon == null) return;
+        UpdateAgeTexts(addon);
+    }
+
+    private void UpdateAgeTexts(AtkUnitBase* addon)
+    {
+        var rowSlots = BuildRowSlotMap(addon);
+        var activeRetainerId = GetActiveRetainerId();
+        for (var rowIdx = 0; rowIdx < MaxRows; rowIdx++)
+        {
+            if (rowNodes[rowIdx] == null) continue;
+            var ageText = ResolveAgeText(activeRetainerId, rowSlots, rowIdx);
+            rowNodes[rowIdx]->SetText(ageText);
+        }
+    }
+
     private void ApplyColumn(AtkUnitBase* addon)
     {
         if (columnApplied) return;
@@ -103,6 +151,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
             if (hh != null) LogChildren("#5", hh);
             var body = addon->GetNodeById(MainBodyNodeId);
             if (body != null) LogChildren("#20", body);
+            LogAtkValues(addon);
         }
 
         WidenAddonLayout(addon, (short)ColumnWidth);
@@ -118,6 +167,10 @@ internal unsafe class RetainerSellListColumn : IDisposable
                 addon->UldManager.UpdateDrawNodeList();
             }
         }
+
+        var rowSlots = BuildRowSlotMap(addon);
+        var activeRetainerId = GetActiveRetainerId();
+        LogDiagnostics(activeRetainerId, rowSlots);
 
         var listNode = addon->GetNodeById(ListNodeId);
         if (listNode != null && (ushort)listNode->Type >= 1000)
@@ -144,14 +197,15 @@ internal unsafe class RetainerSellListColumn : IDisposable
                     // produces the visual breathing room.
                     var rowColumnX = (short)(row->Width - ColumnWidth);
 
-                    var todo = MakeTextNode("TODO", RowNodeIdBase + (uint)rowIdx, rowColumnX, RowYInRow, ColumnWidth, 23, AlignmentType.Right);
-                    if (todo == null) continue;
+                    LogRowTexts(rowIdx, rowSlots, row);
+                    var ageText = ResolveAgeText(activeRetainerId, rowSlots, rowIdx);
+                    var ageNode = MakeTextNode(ageText, RowNodeIdBase + (uint)rowIdx, rowColumnX, RowYInRow, ColumnWidth, 23, AlignmentType.Right);
+                    if (ageNode == null) continue;
 
-                    AppendToSiblingTail(row, (AtkResNode*)todo);
-                    //AppendToNodeList(&rowComp->UldManager, (AtkResNode*)todo);
+                    AppendToSiblingTail(row, (AtkResNode*)ageNode);
                     rowComp->UldManager.UpdateDrawNodeList();
 
-                    rowNodes[rowIdx] = todo;
+                    rowNodes[rowIdx] = ageNode;
                     rowOwners[rowIdx] = rowCompNode;
                     rowIdx++;
                 }
@@ -159,6 +213,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
         }
 
         columnApplied = true;
+        lastPeriodicRefreshUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         Service.PluginLog.Info("[AgeCol] column applied");
     }
 
@@ -280,6 +335,159 @@ internal unsafe class RetainerSellListColumn : IDisposable
             node->NextSiblingNode->PrevSiblingNode = node->PrevSiblingNode;
     }
 
+    // Builds the displayed-row -> RetainerMarket-slot mapping by reading the addon's
+    // AtkValues. The addon's row 0 slot lives at AtkValues[15], row 1 at [28], row 2 at
+    // [41], etc. — i.e., index = 15 + rowIdx*13. This is the authoritative display-order
+    // mapping pushed by the agent; container iteration order is a different ordering and
+    // can't be used positionally.
+    private const int AtkValueSlotBaseIndex = 15;
+    private const int AtkValueSlotStride = 13;
+
+    private static List<short> BuildRowSlotMap(AtkUnitBase* addon)
+    {
+        var slots = new List<short>(MaxRows);
+        if (addon == null || addon->AtkValues == null) return slots;
+
+        for (var row = 0; row < MaxRows; row++)
+        {
+            var idx = AtkValueSlotBaseIndex + row * AtkValueSlotStride;
+            if (idx >= addon->AtkValuesCount) break;
+            var v = &addon->AtkValues[idx];
+            int raw;
+            switch (v->Type)
+            {
+                case AtkValueType.Int:
+                    raw = v->Int;
+                    break;
+                case AtkValueType.UInt:
+                    raw = (int)v->UInt;
+                    break;
+                default:
+                    return slots; // hit a non-numeric value — end of populated rows
+            }
+            if (raw < 0 || raw > 19) return slots; // sentinel / unused row
+            slots.Add((short)raw);
+        }
+        return slots;
+    }
+
+    private static ulong GetActiveRetainerId()
+    {
+        var manager = RetainerManager.Instance();
+        if (manager == null) return 0;
+        var active = manager->GetActiveRetainer();
+        return active != null ? active->RetainerId : manager->LastSelectedRetainerId;
+    }
+
+    private string ResolveAgeText(ulong retainerId, List<short> rowSlots, int rowIdx)
+    {
+        if (retainerId == 0 || rowIdx >= rowSlots.Count)
+        {
+            Service.PluginLog.Info($"[AgeCol/Resolve] row={rowIdx} -> no slot (retainerId={retainerId}, rowSlots.Count={rowSlots.Count})");
+            return "—";
+        }
+        var slot = rowSlots[rowIdx];
+        var entry = plugin.ListingTimestampStore.Get(retainerId, slot);
+        if (entry == null)
+        {
+            Service.PluginLog.Info($"[AgeCol/Resolve] row={rowIdx} -> slot={slot}, NO STORE ENTRY for retainer={retainerId}");
+            return "—";
+        }
+        var age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - entry.ModifiedAt;
+        Service.PluginLog.Info(
+            $"[AgeCol/Resolve] row={rowIdx} -> slot={slot}, entry: itemId={entry.ItemId} price={entry.Price} modifiedAt={entry.ModifiedAt} ageSec={age}");
+        return FormatAge(age);
+    }
+
+    // Dumps the active retainer, the container's filled slots (iterIdx, item->Slot, itemId, qty),
+    // and our store entries for the active retainer. Lets us compare what we recorded vs the
+    // container's actual state at display time.
+    private void LogDiagnostics(ulong activeRetainerId, List<short> rowSlots)
+    {
+        Service.PluginLog.Info($"[AgeCol/Diag] active retainer={activeRetainerId}");
+        var agentAddr = Plugin.Plugin.GetAgentRetainerAddress();
+        Service.PluginLog.Info($"[AgeCol/Diag] AgentRetainer base = 0x{agentAddr.ToInt64():X}  (size 0x68D0)");
+
+        var inventoryManager = InventoryManager.Instance();
+        if (inventoryManager == null)
+        {
+            Service.PluginLog.Info("[AgeCol/Diag] InventoryManager is null");
+            return;
+        }
+        var container = inventoryManager->GetInventoryContainer(InventoryType.RetainerMarket);
+        if (container == null)
+        {
+            Service.PluginLog.Info("[AgeCol/Diag] RetainerMarket container is null");
+            return;
+        }
+        Service.PluginLog.Info($"[AgeCol/Diag] container size={container->Size}");
+        for (short s = 0; s < (short)container->Size; s++)
+        {
+            var item = container->GetInventorySlot(s);
+            if (item == null) continue;
+            if (item->ItemId == 0) continue;
+            Service.PluginLog.Info(
+                $"[AgeCol/Diag] container iter={s} item->Slot={item->Slot} itemId={item->ItemId} qty={item->Quantity}");
+        }
+
+        Service.PluginLog.Info($"[AgeCol/Diag] rowSlots (in display order)=[{string.Join(",", rowSlots)}]");
+
+        foreach (var slot in rowSlots)
+        {
+            var entry = plugin.ListingTimestampStore.Get(activeRetainerId, slot);
+            if (entry == null)
+            {
+                Service.PluginLog.Info($"[AgeCol/Diag] store: slot={slot} -> (none)");
+            }
+            else
+            {
+                Service.PluginLog.Info(
+                    $"[AgeCol/Diag] store: slot={slot} -> itemId={entry.ItemId} price={entry.Price} createdAt={entry.CreatedAt} modifiedAt={entry.ModifiedAt}");
+            }
+        }
+    }
+
+    // Dumps every descendant text node of a row's content host, so we can see what
+    // the addon actually shows in this row position and compare against the slot
+    // we mapped it to.
+    private static void LogRowTexts(int rowIdx, List<short> rowSlots, AtkResNode* rowContent)
+    {
+        var mappedSlot = rowIdx < rowSlots.Count ? rowSlots[rowIdx].ToString() : "(none)";
+        var texts = new List<string>();
+        CollectRowTexts(rowContent, texts);
+        Service.PluginLog.Info(
+            $"[AgeCol/Row] row={rowIdx} mappedSlot={mappedSlot} texts=[{string.Join(" | ", texts)}]");
+    }
+
+    private static void CollectRowTexts(AtkResNode* node, List<string> result)
+    {
+        if (node == null) return;
+        if (node->Type == NodeType.Text)
+        {
+            var raw = ((AtkTextNode*)node)->NodeText.ToString();
+            // Strip control chars / non-printables for readability.
+            var cleaned = new string(System.Linq.Enumerable.ToArray(
+                System.Linq.Enumerable.Where(raw, c => c >= 0x20 && c < 0x7F)));
+            if (cleaned.Length > 0) result.Add($"x={node->X:F0}:'{cleaned}'");
+        }
+        var child = node->ChildNode;
+        while (child != null)
+        {
+            CollectRowTexts(child, result);
+            child = child->PrevSiblingNode;
+        }
+    }
+
+    private static string FormatAge(long seconds)
+    {
+        if (seconds < 60) return "<1m";
+        if (seconds < 3600) return $"{seconds / 60}m";
+        if (seconds < 86400) return $"{seconds / 3600}h";
+        var days = seconds / 86400;
+        var hours = (seconds % 86400) / 3600;
+        return hours > 0 ? $"{days}d {hours}h" : $"{days}d";
+    }
+
     private static void LogChildren(string label, AtkResNode* parent)
     {
         Service.PluginLog.Info($"[Diag] {label} pos=({parent->X:F0},{parent->Y:F0}) size={parent->Width}x{parent->Height}");
@@ -293,6 +501,51 @@ internal unsafe class RetainerSellListColumn : IDisposable
                     $"pos=({child->X:F0},{child->Y:F0}) size={child->Width}x{child->Height}");
             }
             child = child->PrevSiblingNode;
+        }
+    }
+
+    // Dumps every AtkValue in the addon to the log. AtkValues is the standardized
+    // data channel from the agent to the addon — for list-style addons like this one,
+    // each row's fields (item id, qty, price, slot, etc.) live here in display order.
+    // We use this to find the offset/stride for reading slot per row.
+    private static void LogAtkValues(AtkUnitBase* addon)
+    {
+        if (addon == null || addon->AtkValues == null)
+        {
+            Service.PluginLog.Info("[Diag/AtkValues] no AtkValues");
+            return;
+        }
+        var count = addon->AtkValuesCount;
+        Service.PluginLog.Info($"[Diag/AtkValues] count={count}");
+        for (var i = 0; i < count; i++)
+        {
+            var v = &addon->AtkValues[i];
+            var typeStr = v->Type.ToString();
+            string valueStr;
+            switch (v->Type)
+            {
+                case AtkValueType.Int:
+                    valueStr = v->Int.ToString();
+                    break;
+                case AtkValueType.UInt:
+                    valueStr = v->UInt.ToString();
+                    break;
+                case AtkValueType.Bool:
+                    valueStr = v->Byte.ToString();
+                    break;
+                case AtkValueType.String:
+                case AtkValueType.String8:
+                case AtkValueType.ManagedString:
+                    valueStr = v->String.HasValue
+                        ? System.Runtime.InteropServices.Marshal.PtrToStringUTF8((nint)v->String.Value) ?? "(null)"
+                        : "(null)";
+                    if (valueStr.Length > 60) valueStr = valueStr[..60] + "...";
+                    break;
+                default:
+                    valueStr = $"raw=0x{v->Int:X}";
+                    break;
+            }
+            Service.PluginLog.Info($"[Diag/AtkValues] [{i,3}] {typeStr,-20} = {valueStr}");
         }
     }
 
