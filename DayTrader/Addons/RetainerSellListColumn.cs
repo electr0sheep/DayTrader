@@ -37,7 +37,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
     // Our injected node IDs — high range to avoid colliding with game IDs.
     private const uint HeaderNodeId = 0xDA7A0001;
     private const uint RowNodeIdBase = 0xDA7A0100;
-    private const int MaxRows = 12;
+    private const int MaxRows = 20;
 
     private const short ColumnX = 570;
     private const short RowYInRow = 5;
@@ -159,7 +159,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
         var headerHost = addon->GetNodeById(HeaderHostNodeId);
         if (headerHost != null)
         {
-            headerNode = MakeTextNode("Age", HeaderNodeId, ColumnX, 0, ColumnWidth, 16, AlignmentType.Center);
+            headerNode = MakeTextNode("Age", HeaderNodeId, ColumnX, 0, ColumnWidth, 16, AlignmentType.Center, 12, new ByteColor { R = 0xD1, G = 0xD1, B = 0xD1, A = 0xFF });
             if (headerNode != null)
             {
                 AppendToSiblingTail(headerHost, (AtkResNode*)headerNode);
@@ -199,7 +199,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
 
                     LogRowTexts(rowIdx, rowSlots, row);
                     var ageText = ResolveAgeText(activeRetainerId, rowSlots, rowIdx);
-                    var ageNode = MakeTextNode(ageText, RowNodeIdBase + (uint)rowIdx, rowColumnX, RowYInRow, ColumnWidth, 23, AlignmentType.Right);
+                    var ageNode = MakeTextNode(ageText, RowNodeIdBase + (uint)rowIdx, rowColumnX, RowYInRow, ColumnWidth, 23, AlignmentType.Right, 14, new ByteColor { R = 0xD1, G = 0xD1, B = 0xD1, A = 0xFF });
                     if (ageNode == null) continue;
 
                     AppendToSiblingTail(row, (AtkResNode*)ageNode);
@@ -262,7 +262,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
         Service.PluginLog.Info("[AgeCol] column removed");
     }
 
-    private static AtkTextNode* MakeTextNode(string text, uint nodeId, short x, short y, ushort w, ushort h, AlignmentType alignmentType)
+    private static AtkTextNode* MakeTextNode(string text, uint nodeId, short x, short y, ushort w, ushort h, AlignmentType alignmentType, byte fontSize, ByteColor textColor)
     {
         var node = (AtkTextNode*)IMemorySpace.GetUISpace()->Malloc((ulong)sizeof(AtkTextNode), 8);
         if (node == null) return null;
@@ -289,9 +289,9 @@ internal unsafe class RetainerSellListColumn : IDisposable
 
         node->LineSpacing = 12;
         node->AlignmentFontType = (byte)alignmentType;
-        node->FontSize = 12;
+        node->FontSize = fontSize;
         node->TextFlags = TextFlags.Edge;
-        node->TextColor = new ByteColor { R = 0xD1, G = 0xD1, B = 0xD1, A = 0xFF };
+        node->TextColor = textColor;
         node->EdgeColor = new ByteColor { R = 0, G = 0, B = 0, A = 0xFF };
 
         node->SetText(text);
@@ -393,7 +393,7 @@ internal unsafe class RetainerSellListColumn : IDisposable
             Service.PluginLog.Info($"[AgeCol/Resolve] row={rowIdx} -> slot={slot}, NO STORE ENTRY for retainer={retainerId}");
             return "—";
         }
-        var age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - entry.ModifiedAt;
+        var age = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - entry.CreatedAt;
         Service.PluginLog.Info(
             $"[AgeCol/Resolve] row={rowIdx} -> slot={slot}, entry: itemId={entry.ItemId} price={entry.Price} modifiedAt={entry.ModifiedAt} ageSec={age}");
         return FormatAge(age);

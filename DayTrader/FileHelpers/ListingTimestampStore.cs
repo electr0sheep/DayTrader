@@ -110,6 +110,20 @@ namespace DayTrader.FileHelpers
             Save();
         }
 
+        // Seller pulled a listing back from the market. No sale can match this entry,
+        // so drop it. Caller has already verified that the slot is empty post-withdrawal;
+        // partial withdrawals are not routed here.
+        public void RemoveListing(ulong retainerId, short slot)
+        {
+            bool changed;
+            lock (gate)
+            {
+                var removed = entries.RemoveAll(e => e.RetainerId == retainerId && e.SlotIndex == slot);
+                changed = removed > 0;
+            }
+            if (changed) Save();
+        }
+
         public RetainerListingTimestamp? Get(ulong retainerId, short slot)
         {
             lock (gate)

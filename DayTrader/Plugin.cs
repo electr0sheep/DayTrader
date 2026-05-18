@@ -36,6 +36,7 @@ namespace Plugin
         private DashboardWindow Dashboard { get; init; }
         internal RetainerSellListColumn RetainerSellListColumn { get; init; }
         internal ListingTimestampStore ListingTimestampStore { get; init; }
+        private AutoCycleSaleHistory AutoCycleSaleHistory { get; init; }
         private readonly Hook<PacketDispatcher.Delegates.OnReceivePacket> onReceivePacketHook;
 
         private unsafe delegate void MoveToRetainerMarketDelegate(
@@ -52,8 +53,22 @@ namespace Plugin
             short slot,
             uint price);
 
+        private unsafe delegate int MoveFromRetainerMarketToPlayerInventoryDelegate(
+            InventoryManager* inventoryManager,
+            InventoryType srcInv,
+            ushort srcSlot,
+            uint quantity);
+
+        private unsafe delegate int MoveFromRetainerMarketToRetainerInventoryDelegate(
+            InventoryManager* inventoryManager,
+            InventoryType srcInv,
+            ushort srcSlot,
+            uint quantity);
+
         private readonly Hook<MoveToRetainerMarketDelegate> moveToRetainerMarketHook;
         private readonly Hook<SetRetainerMarketPriceDelegate> setRetainerMarketPriceHook;
+        private readonly Hook<MoveFromRetainerMarketToPlayerInventoryDelegate> moveFromRetainerMarketToPlayerInventoryHook;
+        private readonly Hook<MoveFromRetainerMarketToRetainerInventoryDelegate> moveFromRetainerMarketToRetainerInventoryHook;
 
         public unsafe Plugin(IDalamudPluginInterface PluginInterface)
         {
@@ -72,6 +87,7 @@ namespace Plugin
             ListingTimestampStore = new ListingTimestampStore();
             ListingTimestampStore.Load();
             RetainerSellListColumn = new RetainerSellListColumn(this);
+            AutoCycleSaleHistory = new AutoCycleSaleHistory(this);
 
             WindowSystem.AddWindow(ConfigWindow);
             WindowSystem.AddWindow(MainWindow);
@@ -96,6 +112,10 @@ namespace Plugin
             // - MoveToRetainerMarket fires when a brand-new listing is placed (item moved from
             //   player/retainer inventory into the RetainerMarket inventory at a chosen slot).
             // - SetRetainerMarketPrice fires when an existing listing's price/qty is adjusted.
+            // - MoveFromRetainerMarketTo{Player,Retainer}Inventory fire when the seller pulls
+            //   a listing back. No sale can ever match a withdrawn entry, so an empty post-call
+            //   slot means we drop the entry; a still-occupied slot is a partial withdrawal and
+            //   the entry's CreatedAt stays put.
             // Hooking here gives us slot + price directly, no opcode/struct guessing needed.
             var moveToMarketAddr = (nint)InventoryManager.Addresses.MoveToRetainerMarket.Value;
             this.moveToRetainerMarketHook = Service.GameInteropProvider
@@ -106,6 +126,16 @@ namespace Plugin
             this.setRetainerMarketPriceHook = Service.GameInteropProvider
                 .HookFromAddress<SetRetainerMarketPriceDelegate>(setPriceAddr, SetRetainerMarketPriceDetour);
             this.setRetainerMarketPriceHook.Enable();
+
+            var withdrawToPlayerAddr = (nint)InventoryManager.Addresses.MoveFromRetainerMarketToPlayerInventory.Value;
+            this.moveFromRetainerMarketToPlayerInventoryHook = Service.GameInteropProvider
+                .HookFromAddress<MoveFromRetainerMarketToPlayerInventoryDelegate>(withdrawToPlayerAddr, MoveFromRetainerMarketToPlayerInventoryDetour);
+            this.moveFromRetainerMarketToPlayerInventoryHook.Enable();
+
+            var withdrawToRetainerAddr = (nint)InventoryManager.Addresses.MoveFromRetainerMarketToRetainerInventory.Value;
+            this.moveFromRetainerMarketToRetainerInventoryHook = Service.GameInteropProvider
+                .HookFromAddress<MoveFromRetainerMarketToRetainerInventoryDelegate>(withdrawToRetainerAddr, MoveFromRetainerMarketToRetainerInventoryDetour);
+            this.moveFromRetainerMarketToRetainerInventoryHook.Enable();
         }
 
         public void Dispose()
@@ -116,11 +146,14 @@ namespace Plugin
             MainWindow.Dispose();
             Dashboard.Dispose();
             RetainerSellListColumn.Dispose();
+            AutoCycleSaleHistory.Dispose();
 
             Service.CommandManager.RemoveHandler(CommandName);
             this.onReceivePacketHook.Dispose();
             this.moveToRetainerMarketHook.Dispose();
             this.setRetainerMarketPriceHook.Dispose();
+            this.moveFromRetainerMarketToPlayerInventoryHook.Dispose();
+            this.moveFromRetainerMarketToRetainerInventoryHook.Dispose();
         }
 
         private unsafe void MoveToRetainerMarketDetour(
@@ -184,6 +217,66 @@ namespace Plugin
             catch (Exception e)
             {
                 Service.PluginLog.Error($"[DayTrader] SetRetainerMarketPrice detour failed: {e}");
+            }
+        }
+
+        private unsafe int MoveFromRetainerMarketToPlayerInventoryDetour(
+            InventoryManager* inventoryManager,
+            InventoryType srcInv,
+            ushort srcSlot,
+            uint quantity)
+        {
+            var result = this.moveFromRetainerMarketToPlayerInventoryHook.Original(
+                inventoryManager, srcInv, srcSlot, quantity);
+            HandleWithdrawal(inventoryManager, srcSlot, "ToPlayer");
+            return result;
+        }
+
+        private unsafe int MoveFromRetainerMarketToRetainerInventoryDetour(
+            InventoryManager* inventoryManager,
+            InventoryType srcInv,
+            ushort srcSlot,
+            uint quantity)
+        {
+            var result = this.moveFromRetainerMarketToRetainerInventoryHook.Original(
+                inventoryManager, srcInv, srcSlot, quantity);
+            HandleWithdrawal(inventoryManager, srcSlot, "ToRetainer");
+            return result;
+        }
+
+        // Inspect the market slot after the move completed. If it's empty, the seller
+        // pulled the whole stack and the listing entry should be dropped. If items remain,
+        // it was a partial withdrawal — the listing is still live at the original CreatedAt.
+        private unsafe void HandleWithdrawal(InventoryManager* inventoryManager, ushort slot, string destination)
+        {
+            try
+            {
+                var marketContainer = inventoryManager->GetInventoryContainer(InventoryType.RetainerMarket);
+                bool slotEmpty = true;
+                if (marketContainer != null)
+                {
+                    var item = marketContainer->GetInventorySlot(slot);
+                    if (item != null && item->ItemId != 0 && item->Quantity > 0)
+                    {
+                        slotEmpty = false;
+                    }
+                }
+                var (retainerId, retainerName) = GetActiveRetainer();
+                if (slotEmpty)
+                {
+                    Service.PluginLog.Info(
+                        $"[DayTrader/Record/Withdraw] retainer={retainerName}({retainerId}) slot={slot} dest={destination} fully-withdrawn");
+                    ListingTimestampStore.RemoveListing(retainerId, (short)slot);
+                }
+                else
+                {
+                    Service.PluginLog.Info(
+                        $"[DayTrader/Record/Withdraw] retainer={retainerName}({retainerId}) slot={slot} dest={destination} partial — entry preserved");
+                }
+            }
+            catch (Exception e)
+            {
+                Service.PluginLog.Error($"[DayTrader] HandleWithdrawal failed: {e}");
             }
         }
 
@@ -264,6 +357,7 @@ namespace Plugin
                     {
                         Writers.WriteItemsToCsv(items);
                     });
+                    AutoCycleSaleHistory.NotifySaleHistoryReceived();
                 }
             }
             catch (Exception e)

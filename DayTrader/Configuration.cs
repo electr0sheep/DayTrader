@@ -24,6 +24,8 @@ namespace Plugin
         public bool ShowSalesPerHour { get; set; } = true;
         public bool ShowSalesGraph { get; set; } = true;
 
+        public bool AutoCycleSaleHistoryEnabled { get; set; } = false;
+
         public DashboardTimeRange DashboardTimeRange { get; set; } = DashboardTimeRange.AllTime;
 
         public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
