@@ -28,8 +28,6 @@ namespace Plugin
 
         public DashboardTimeRange DashboardTimeRange { get; set; } = DashboardTimeRange.AllTime;
 
-        public bool SomePropertyToBeSavedAndWithADefault { get; set; } = true;
-
         // the below exist just to make saving less cumbersome
         [NonSerialized]
         private IDalamudPluginInterface? pluginInterface;

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Bindings.ImPlot;
+using Dalamud.Interface;
 using Dalamud.Interface.Windowing;
 using DayTrader;
 using DayTrader.FileHelpers;
@@ -42,6 +43,14 @@ public class DashboardWindow : Window, IDisposable
         this.plugin = plugin;
         Size = new Vector2(820, 640);
         SizeCondition = ImGuiCond.FirstUseEver;
+
+        TitleBarButtons.Add(new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.Cog,
+            IconOffset = new Vector2(2, 1),
+            Click = _ => plugin.ToggleConfigUI(),
+            ShowTooltip = () => ImGui.SetTooltip("Open configuration"),
+        });
     }
 
     public void Dispose() { }

@@ -1,19 +1,20 @@
 using Dalamud.Game.Command;
-using Dalamud.Plugin;
-using Dalamud.Interface.Windowing;
-using Plugin.Windows;
-using DayTrader;
-using Dalamud.Utility;
 using Dalamud.Hooking;
+using Dalamud.Interface.Windowing;
+using Dalamud.Plugin;
+using Dalamud.Utility;
+using DayTrader;
 using DayTrader.Addons;
 using DayTrader.FileHelpers;
-using System.Threading.Tasks;
 using DayTrader.Interop;
-using System.Collections.Generic;
-using System;
-using System.Runtime.InteropServices;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Network;
+using FFXIVClientStructs.FFXIV.Common.Lua;
+using Plugin.Windows;
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace Plugin
 {
@@ -22,7 +23,16 @@ namespace Plugin
         public string Name => "Day Trader";
         private const string CommandName = "/pdt";
 
-        private const ushort RetainerSaleHistoryOpcode = 185;
+        // Opcodes and packet offsets change on essentially every game patch. VerifiedGameVersion
+        // records the ffxivgame.ver string this build was last confirmed against; bump it together
+        // with RetainerSaleHistoryOpcode each time you re-verify after a patch. When the running
+        // game version differs, the opcode below is almost certainly stale and DayTrader will record
+        // wrong or no sale history until it's updated, so we warn at startup. Leave it empty to
+        // suppress the warning — the detected version is always written to the plugin log so you can
+        // copy the correct value here.
+        private const ushort RetainerSaleHistoryOpcode = 874;
+        private const string VerifiedGameVersion = "2026.05.25.0000.0000";
+
 
         private bool opcodeNotificationShown = false;
 
@@ -73,6 +83,10 @@ namespace Plugin
         public unsafe Plugin(IDalamudPluginInterface PluginInterface)
         {
             PluginInterface.Create<Service>();
+
+            // Warn early — before the patch-sensitive hooks below are installed — if the game has
+            // been updated since this build was last verified.
+            CheckGameVersion();
 
             Service.FontManager = new();
 
@@ -299,6 +313,54 @@ namespace Plugin
             return (nint)agent;
         }
 
+        // The sale-history opcode and the inventory hooks are pinned to a specific game build, so a
+        // patch almost always invalidates them. Compare the running client version against the one
+        // this build was verified on and warn the user if the game has been updated.
+        private static unsafe void CheckGameVersion()
+        {
+            try
+            {
+                var framework = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework.Instance();
+                var current = framework != null ? framework->GameVersionString : null;
+
+                if (string.IsNullOrEmpty(current))
+                {
+                    Service.PluginLog.Warning("[DayTrader] Could not read the current game version; skipping patch check.");
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(VerifiedGameVersion))
+                {
+                    Service.PluginLog.Info(
+                        $"[DayTrader] Running on game version {current}. No verified baseline is pinned; set VerifiedGameVersion to this value to enable patch warnings.");
+                    return;
+                }
+
+                if (current == VerifiedGameVersion)
+                {
+                    Service.PluginLog.Info($"[DayTrader] Game version {current} matches the verified baseline.");
+                    return;
+                }
+
+                Service.PluginLog.Warning(
+                    $"[DayTrader] Game version changed: verified against {VerifiedGameVersion} but currently running {current}. " +
+                    "A patch has likely changed the sale-history opcode and inventory hooks, so DayTrader may record wrong or no data until it is updated.");
+
+                Service.NotificationManager.AddNotification(new()
+                {
+                    Title = "DayTrader may be out of date",
+                    Content =
+                        $"The game was patched ({VerifiedGameVersion} -> {current}). DayTrader's market hooks are " +
+                        "probably stale, so sale history may be wrong or missing until the plugin is updated.",
+                    Type = Dalamud.Interface.ImGuiNotification.NotificationType.Warning
+                });
+            }
+            catch (Exception e)
+            {
+                Service.PluginLog.Error($"[DayTrader] Game version check failed: {e}");
+            }
+        }
+
         private void OnCommand(string command, string args)
         {
             var argv = args.Split(' ');
@@ -385,6 +447,11 @@ namespace Plugin
         public void DrawConfigUI()
         {
             ConfigWindow.IsOpen = true;
+        }
+
+        public void ToggleConfigUI()
+        {
+            ConfigWindow.Toggle();
         }
     }
 }

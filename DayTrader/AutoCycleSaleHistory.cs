@@ -35,7 +35,14 @@ internal sealed class AutoCycleSaleHistory : IDisposable
     private const int EntryCountAtkValueIndex = 3;
     private const int EntriesStartAtkValueIndex = 7;
 
-    private static readonly TimeSpan PacketWaitTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan PacketWaitTimeout = TimeSpan.FromSeconds(1);
+
+    // AR's post-process callback can fire a hair before its own UI cleanup
+    // settles back to the SelectString — e.g. if AR just finished entrusting,
+    // the RetainerInventory addon may still be closing. Poll briefly for the
+    // SelectString to appear before giving up.
+    private static readonly TimeSpan SelectStringWaitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SelectStringPollInterval = TimeSpan.FromMilliseconds(200);
 
     private readonly Plugin.Plugin plugin;
     private readonly AutoRetainerIpc ipc;
@@ -87,6 +94,12 @@ internal sealed class AutoCycleSaleHistory : IDisposable
         {
             packetTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+            if (!await WaitForSelectStringAsync())
+            {
+                Service.PluginLog.Warning($"[DayTrader/AutoCycle] {retainerName}: SelectString didn't become visible within {SelectStringWaitTimeout.TotalSeconds:F0}s; skipping.");
+                return;
+            }
+
             var triggered = await Service.Framework.RunOnFrameworkThread(() => TryTriggerSaleHistory(retainerName));
             if (!triggered) return;
 
@@ -106,6 +119,25 @@ internal sealed class AutoCycleSaleHistory : IDisposable
             FinishSafely();
             Interlocked.Exchange(ref active, 0);
         }
+    }
+
+    private static async Task<bool> WaitForSelectStringAsync()
+    {
+        var deadline = DateTime.UtcNow + SelectStringWaitTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await Service.Framework.RunOnFrameworkThread(IsSelectStringVisible)) return true;
+            await Task.Delay(SelectStringPollInterval);
+        }
+        return false;
+    }
+
+    private static unsafe bool IsSelectStringVisible()
+    {
+        var ptr = Service.GameGui.GetAddonByName(SelectStringAddon);
+        if (ptr == nint.Zero) return false;
+        var addon = (AtkUnitBase*)ptr.Address;
+        return addon != null && addon->IsVisible;
     }
 
     private static unsafe bool TryTriggerSaleHistory(string retainerName)
