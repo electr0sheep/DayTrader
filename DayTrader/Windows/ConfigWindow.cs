@@ -14,7 +14,7 @@ public class ConfigWindow : Window, IDisposable
         ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
         ImGuiWindowFlags.NoScrollWithMouse)
     {
-        this.Size = new Vector2(232, 75);
+        this.Size = new Vector2(340, 130);
         this.SizeCondition = ImGuiCond.Always;
 
         this.Configuration = plugin.Configuration;
@@ -32,5 +32,14 @@ public class ConfigWindow : Window, IDisposable
             // can save immediately on change, if you don't want to provide a "Save and Close" button
             this.Configuration.Save();
         }
+
+        var autoCycle = this.Configuration.AutoCycleSaleHistoryEnabled;
+        if (ImGui.Checkbox("Auto-fetch sale history during AutoRetainer cycles", ref autoCycle))
+        {
+            this.Configuration.AutoCycleSaleHistoryEnabled = autoCycle;
+            this.Configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Requires AutoRetainer. Whenever AR processes a retainer (single-character or multi-mode), DayTrader opens that retainer's sale history so its CSV gets refreshed without manual clicks.");
     }
 }
